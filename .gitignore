@@ -18,6 +18,9 @@ logs/
 # Eigen/auteursrechtelijk beschermde testmuziek — nooit committen
 samples/
 
+# Claude Code harness-interne state
+.claude/
+
 # Grote pretrained modellen — apart te downloaden, niet in git
 models/*.pb
 models/*.json

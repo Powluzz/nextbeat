@@ -6,11 +6,19 @@ mood_sad, mood_aggressive, mood_relaxed, mood_party en genre_discogs400.
 
 Vereist het `essentia-tensorflow`-pakket (niet hetzelfde als het basis
 `essentia`-pakket) én de modelbestanden in `models/` — zie
-`models/download_models.sh`. In deze projectomgeving is `essentia-tensorflow`
-niet beschikbaar als wheel voor dit platform/deze Python-versie, dus dit pad
-is hier niet end-to-end getest tegen echte modellen; het is geschreven
-volgens Essentia's gedocumenteerde inference-patroon en degradeert altijd
-veilig (zie `models_available()` hieronder).
+`models/download_models.sh`. Dit pad is end-to-end getest tegen de echte
+gedownloade modelbestanden. Twee node-naam-details bleken daarbij af te
+wijken van Essentia's algemene documentatie/defaults (vandaar expliciet
+gezet i.p.v. op de default vertrouwd):
+- mood-classifiers: 2-klasse softmax-kop, output-node "model/Softmax"
+  (niet de essentia-default "model/Sigmoid").
+- genre_discogs400: geëxporteerd als SavedModel/PartitionedCall (zoals het
+  embedding-model), dus input "serving_default_model_Placeholder" en
+  output "PartitionedCall" i.p.v. de "model/Placeholder"/"model/Sigmoid"-
+  defaults.
+
+Zonder modellen (of zonder `essentia-tensorflow`) degradeert dit altijd
+veilig naar NULL — zie `models_available()` hieronder.
 
 **Belangrijk (kwaliteitseis):** als de modelbestanden niet aanwezig zijn,
 wordt classificatie overgeslagen en blijven de betreffende
@@ -39,6 +47,32 @@ _EMPTY_RESULT: dict[str, Any] = {
 
 # Discogs400-genrelabels worden uit het meegeleverde .json-bestand gelezen
 # (niet hardcoded) omdat de exacte labelset aan het modelbestand gebonden is.
+
+
+_essentia_chatter_silenced = False
+
+
+def _silence_essentia_tensorflow_chatter() -> None:
+    """Onderdrukt Essentia's eigen (C++-side) info/warning-prints, zoals de
+    zeer verbose 'No network created, or last created network has been
+    deleted' die essentia-tensorflow per patch logt bij langere audiobestanden.
+
+    Dit is losstaand van Python's `logging`-module (onze eigen `logger.*`-
+    aanroepen elders in dit bestand blijven onaangetast) — het onderdrukt
+    alleen Essentia's interne C++-logging, die voor de gebruiker geen
+    relevante informatie toevoegt.
+    """
+    global _essentia_chatter_silenced
+    if _essentia_chatter_silenced:
+        return
+    try:
+        import essentia
+
+        essentia.log.warningActive = False
+        essentia.log.infoActive = False
+    except Exception:  # pragma: no cover - defensief, mag nooit blokkeren
+        pass
+    _essentia_chatter_silenced = True
 
 
 def _required_model_paths(config: dict[str, Any]) -> list[Path]:
@@ -96,6 +130,8 @@ def classify_mood_genre(filepath: str, config: dict[str, Any]) -> dict[str, Any]
         )
         return dict(_EMPTY_RESULT)
 
+    _silence_essentia_tensorflow_chatter()
+
     try:
         return _run_inference(es, filepath, config)
     except Exception as exc:
@@ -124,16 +160,28 @@ def _run_inference(es_module, filepath: str, config: dict[str, Any]) -> dict[str
         model_path = str(directory / model_fname)
         predictor = _get_or_load(
             es_module, f"mood::{mood_name}", model_path,
-            lambda p=model_path: es_module.TensorflowPredict2D(graphFilename=p),
+            # De Discogs-EffNet mood-classifierheads zijn 2-klasse
+            # softmax-koppen (bevestigd tegen de echte modelbestanden),
+            # niet de essentia-default "model/Sigmoid".
+            lambda p=model_path: es_module.TensorflowPredict2D(
+                graphFilename=p, output="model/Softmax"
+            ),
         )
         predictions = predictor(embeddings)
-        # Binaire mood-classifiers geven doorgaans [P(afwezig), P(aanwezig)].
+        # [P(afwezig), P(aanwezig)] -> laatste kolom is P(aanwezig).
         result[mood_name] = float(predictions.mean(axis=0)[-1])
 
     genre_model_path = str(directory / models_cfg["genre_model"])
     genre_predictor = _get_or_load(
         es_module, "genre", genre_model_path,
-        lambda: es_module.TensorflowPredict2D(graphFilename=genre_model_path),
+        # genre_discogs400 is geëxporteerd als SavedModel/PartitionedCall
+        # (net als het embedding-model), met andere node-namen dan de
+        # mood-classifiers — ook bevestigd tegen het echte modelbestand.
+        lambda: es_module.TensorflowPredict2D(
+            graphFilename=genre_model_path,
+            input="serving_default_model_Placeholder",
+            output="PartitionedCall",
+        ),
     )
     genre_predictions = genre_predictor(embeddings).mean(axis=0)
 

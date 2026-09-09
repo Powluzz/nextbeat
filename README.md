@@ -23,7 +23,8 @@ Zie `BUILD_SPEC.md` voor de volledige oorspronkelijke opdracht.
 - [x] Scoring- en recommendation-engine + tests
 - [x] CLI (`ingest`, `suggest`, `search`, `stats`) + tests
 
-163 tests, allemaal groen (`pytest -q`). Fase 2 (FastAPI + web-UI) en Fase 3
+169 tests, allemaal groen (`pytest -q`), inclusief echte inference tegen de
+gedownloade mood/genre-modellen. Fase 2 (FastAPI + web-UI) en Fase 3
 (zelflerende gewichten) zijn nog niet gebouwd — zie BUILD_SPEC.md.
 
 ## Installatie
@@ -51,7 +52,9 @@ bash models/download_models.sh    # vraagt expliciete bevestiging
 ```
 
 Zonder deze modellen blijven de `mood_*`- en `genre`-kolommen `NULL` — er
-wordt nooit data gefabriceerd.
+wordt nooit data gefabriceerd. Met modellen: getest en werkend, zie
+`tests/test_mood_genre_models.py` (de `requires_real_models`-tests draaien
+alleen als de modellen daadwerkelijk gedownload zijn).
 
 ## Configuratie
 
@@ -106,6 +109,17 @@ meegeleverd. MusicBrainz-netwerkcalls zijn in alle tests gemockt.
   BUILD_SPEC.md (die zegt "minimaal deze kolommen") — nodig om de
   bibliotheekbrede energie-normalisatie idempotent te kunnen herhalen
   zonder audio opnieuw te analyseren.
+- **TensorFlow-node-namen in `mood_genre_models.py`**: bij het echt
+  testen tegen de gedownloade modellen bleken twee node-namen af te wijken
+  van Essentia's algemene documentatie/defaults: de mood-classifiers zijn
+  2-klasse softmax-koppen (`output="model/Softmax"`, niet de default
+  `"model/Sigmoid"`), en `genre_discogs400` is geëxporteerd als SavedModel/
+  PartitionedCall (`input="serving_default_model_Placeholder"`,
+  `output="PartitionedCall"`) — zie de code-comments in dat bestand.
+- **MusicBrainz genre-tags vereisen 2 calls**: `search_recordings()` levert
+  in de echte MB-API geen `tag-list` mee (bevestigd tegen musicbrainz.org).
+  Een gevonden MBID wordt daarom gevolgd door een tweede, eveneens
+  rate-limited `get_recording_by_id(mbid, includes=["tags"])`-call.
 
 ## MusicBrainz — gebruiksvoorwaarden
 
