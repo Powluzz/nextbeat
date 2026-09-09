@@ -164,6 +164,43 @@ def test_musicbrainz_cache_roundtrip(conn):
     assert cached["genre_tags"] == "techno,house"
 
 
+def test_normalize_energy_min_max_scaling(conn):
+    db.insert_track(conn, _sample_track(filepath="/a.mp3", energy_raw=0.0))
+    db.insert_track(conn, _sample_track(filepath="/b.mp3", energy_raw=0.5))
+    db.insert_track(conn, _sample_track(filepath="/c.mp3", energy_raw=1.0))
+
+    updated = db.normalize_energy(conn)
+    assert updated == 3
+
+    tracks = {t["filepath"]: t["energy"] for t in db.get_all_tracks(conn)}
+    assert tracks["/a.mp3"] == pytest.approx(0.0)
+    assert tracks["/b.mp3"] == pytest.approx(0.5)
+    assert tracks["/c.mp3"] == pytest.approx(1.0)
+
+
+def test_normalize_energy_single_value_uses_neutral_midpoint(conn):
+    db.insert_track(conn, _sample_track(filepath="/a.mp3", energy_raw=0.42))
+    db.insert_track(conn, _sample_track(filepath="/b.mp3", energy_raw=0.42))
+
+    db.normalize_energy(conn)
+    for track in db.get_all_tracks(conn):
+        assert track["energy"] == pytest.approx(0.5)
+
+
+def test_normalize_energy_skips_tracks_without_raw_value(conn):
+    db.insert_track(conn, _sample_track(filepath="/a.mp3", energy_raw=0.0))
+    db.insert_track(conn, _sample_track(filepath="/b.mp3", energy_raw=1.0))
+    db.insert_track(conn, _sample_track(filepath="/c.mp3", energy=None))  # geen energy_raw
+
+    db.normalize_energy(conn)
+    tracks = {t["filepath"]: t["energy"] for t in db.get_all_tracks(conn)}
+    assert tracks["/c.mp3"] is None
+
+
+def test_normalize_energy_empty_db_returns_zero(conn):
+    assert db.normalize_energy(conn) == 0
+
+
 def test_connect_creates_parent_dir(tmp_path):
     db_path = tmp_path / "nested" / "dir" / "dj.db"
     connection = db.connect(db_path)

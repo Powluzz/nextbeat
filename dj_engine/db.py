@@ -23,6 +23,11 @@ CREATE TABLE IF NOT EXISTS tracks (
     loudness REAL,
     danceability REAL,
     energy REAL,
+    -- energy_raw: ongenormaliseerde energie-feature uit essentia_extractor
+    -- (RMS + hoogfrequent-energieratio). `energy` is de 0-1 min-max
+    -- normalisatie hiervan over de hele bibliotheek (zie ingest/pipeline.py).
+    -- Extra kolom t.o.v. BUILD_SPEC.md — die zegt "minimaal deze kolommen".
+    energy_raw REAL,
     mood_happy REAL,
     mood_sad REAL,
     mood_aggressive REAL,
@@ -56,7 +61,7 @@ CREATE TABLE IF NOT EXISTS musicbrainz_cache (
 # analyzed_at worden door de database beheerd).
 _TRACK_COLUMNS = [
     "filepath", "title", "artist", "mbid", "bpm", "key", "scale", "camelot",
-    "loudness", "danceability", "energy",
+    "loudness", "danceability", "energy", "energy_raw",
     "mood_happy", "mood_sad", "mood_aggressive", "mood_relaxed", "mood_party",
     "genre",
 ]
@@ -259,6 +264,42 @@ def get_stats(conn: sqlite3.Connection) -> dict[str, Any]:
             "SELECT COUNT(*) AS n FROM transitions"
         ).fetchone()["n"],
     }
+
+
+def normalize_energy(conn: sqlite3.Connection) -> int:
+    """Herbereken de 0-1 `energy`-kolom via min-max normalisatie van
+    `energy_raw` over alle tracks in de bibliotheek.
+
+    Roept geen audio-analyse aan (goedkoop, alleen een SQL-pass) — de
+    ingest-pipeline roept dit aan het eind van elke ingest-run aan, zodat
+    nieuw toegevoegde tracks de schaal van de hele collectie meenemen.
+
+    Retourneert het aantal bijgewerkte rijen. Tracks zonder energy_raw
+    (mislukte analyse) blijven op energy=NULL staan.
+    """
+    bounds = conn.execute(
+        "SELECT MIN(energy_raw) AS lo, MAX(energy_raw) AS hi "
+        "FROM tracks WHERE energy_raw IS NOT NULL"
+    ).fetchone()
+    if bounds is None or bounds["lo"] is None:
+        return 0
+
+    lo, hi = bounds["lo"], bounds["hi"]
+    if hi == lo:
+        # Eén track, of alle tracks hebben identieke ruwe energie:
+        # een echte 0-1 spreiding is niet te bepalen, dus zet op het
+        # neutrale midden i.p.v. een willekeurige 0 of 1 te verzinnen.
+        cursor = conn.execute(
+            "UPDATE tracks SET energy = 0.5 WHERE energy_raw IS NOT NULL"
+        )
+    else:
+        cursor = conn.execute(
+            "UPDATE tracks SET energy = (energy_raw - ?) / (? - ?) "
+            "WHERE energy_raw IS NOT NULL",
+            (lo, hi, lo),
+        )
+    conn.commit()
+    return cursor.rowcount
 
 
 # --- MusicBrainz cache -------------------------------------------------
