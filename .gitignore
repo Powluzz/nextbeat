@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Runtime data — niet in git
+*.db
+*.sqlite
+*.sqlite3
+data/
+logs/
+*.log
+
+# Grote pretrained modellen — apart te downloaden, niet in git
+models/*.pb
+models/*.json
+
+# Lokale config met eventuele secrets
+.env

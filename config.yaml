@@ -1,0 +1,77 @@
+# dj-engine configuratie
+# Alle instelbare parameters staan hier — niets hardcoded in de code.
+
+database:
+  path: "data/dj_engine.db"
+
+audio:
+  # Ondersteunde bestandsextensies voor ingest
+  extensions: [".mp3", ".wav", ".flac", ".aiff", ".aif", ".m4a"]
+  # Sample rate waarop Essentia audio inlaadt
+  sample_rate: 44100
+
+musicbrainz:
+  # Verplicht door MusicBrainz API-gebruiksvoorwaarden: max. 1 request/seconde.
+  rate_limit_per_second: 1.0
+  # Unieke, identificeerbare User-Agent zoals MusicBrainz vereist: naam/versie (contact)
+  user_agent_name: "dj-engine"
+  user_agent_version: "0.1.0"
+  user_agent_contact: "paulmeinhardt@pm.me"
+  # Aantal retries bij netwerkfouten/timeouts voordat een lookup wordt overgeslagen
+  max_retries: 3
+  timeout_seconds: 10
+
+models:
+  # Map met optionele pretrained Essentia TensorFlow-modellen (Discogs-EffNet + downstream classifiers).
+  # Als deze bestanden ontbreken, wordt mood/genre-classificatie overgeslagen (kolommen blijven NULL).
+  directory: "models"
+  embedding_model: "discogs-effnet-bs64-1.pb"
+  mood_models:
+    mood_happy: "mood_happy-discogs-effnet-1.pb"
+    mood_sad: "mood_sad-discogs-effnet-1.pb"
+    mood_aggressive: "mood_aggressive-discogs-effnet-1.pb"
+    mood_relaxed: "mood_relaxed-discogs-effnet-1.pb"
+    mood_party: "mood_party-discogs-effnet-1.pb"
+  genre_model: "genre_discogs400-discogs-effnet-1.pb"
+  genre_labels: "genre_discogs400-discogs-effnet-1.json"
+
+scoring:
+  # Maximale BPM-afwijking (percentage) die nog een score > 0 oplevert.
+  bpm_max_deviation_pct: 8.0
+  # Aantal recent gebruikte tracks dat standaard wordt uitgesloten van suggesties.
+  default_exclude_recent: 5
+  # Camelot-compatibiliteitsscores (0-100), zie analysis/camelot.py
+  camelot_scores:
+    same: 100
+    adjacent_same_letter: 90
+    relative_major_minor: 85
+    two_step_same_letter: 75
+    other: 30
+
+  # Gewichtenprofielen per richting. Moeten optellen tot 1.0 per richting
+  # (de engine normaliseert desnoods, maar houd ze in balans).
+  weights:
+    build:
+      key: 0.35
+      bpm: 0.25
+      energy: 0.30
+      mood: 0.10
+    hold:
+      key: 0.40
+      bpm: 0.35
+      energy: 0.15
+      mood: 0.10
+    ease:
+      key: 0.35
+      bpm: 0.20
+      energy: 0.35
+      mood: 0.10
+    surprise:
+      key: 0.15
+      bpm: 0.15
+      energy: 0.20
+      mood: 0.50
+
+logging:
+  level: "INFO"
+  file: "logs/dj_engine.log"
