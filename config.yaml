@@ -48,6 +48,30 @@ scoring:
     two_step_same_letter: 75
     other: 30
 
+  # Doel-energieverschuiving per richting: energy_score() beloont een
+  # verschil in `energy` (candidate - huidige track, op de 0-1 schaal) dat
+  # binnen [center - plateau, center + plateau] valt met het maximum (100),
+  # en loopt daarna lineair af naar 0 over `falloff` afstand.
+  # 'surprise' laat energie bewust grotendeels los (plateau dekt vrijwel het
+  # hele bereik) — bij die richting draagt vooral mood/genre de verrassing.
+  energy_targets:
+    build:
+      center: 0.25
+      plateau: 0.10
+      falloff: 0.50
+    hold:
+      center: 0.0
+      plateau: 0.05
+      falloff: 0.35
+    ease:
+      center: -0.25
+      plateau: 0.10
+      falloff: 0.50
+    surprise:
+      center: 0.0
+      plateau: 1.0
+      falloff: 0.50
+
   # Gewichtenprofielen per richting. Moeten optellen tot 1.0 per richting
   # (de engine normaliseert desnoods, maar houd ze in balans).
   weights:

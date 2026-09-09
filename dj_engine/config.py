@@ -45,6 +45,12 @@ _DEFAULTS: dict[str, Any] = {
             "two_step_same_letter": 75,
             "other": 30,
         },
+        "energy_targets": {
+            "build": {"center": 0.25, "plateau": 0.10, "falloff": 0.50},
+            "hold": {"center": 0.0, "plateau": 0.05, "falloff": 0.35},
+            "ease": {"center": -0.25, "plateau": 0.10, "falloff": 0.50},
+            "surprise": {"center": 0.0, "plateau": 1.0, "falloff": 0.50},
+        },
         "weights": {
             "build": {"key": 0.35, "bpm": 0.25, "energy": 0.30, "mood": 0.10},
             "hold": {"key": 0.40, "bpm": 0.35, "energy": 0.15, "mood": 0.10},
