@@ -15,6 +15,9 @@ data/
 logs/
 *.log
 
+# Eigen/auteursrechtelijk beschermde testmuziek — nooit committen
+samples/
+
 # Grote pretrained modellen — apart te downloaden, niet in git
 models/*.pb
 models/*.json

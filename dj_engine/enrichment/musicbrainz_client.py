@@ -150,7 +150,17 @@ class MusicBrainzClient:
             self.rate_limiter.wait()
             try:
                 result = self._mb.search_recordings(recording=title, artist=artist, limit=1)
-                mbid, genre_tags = self._parse_result(result)
+                mbid = self._extract_mbid(result)
+
+                genre_tags = None
+                if mbid is not None:
+                    # search_recordings() levert geen tag-list mee (de MB
+                    # search-API ondersteunt geen includes) — een tweede,
+                    # eveneens rate-limited call is nodig voor genre-tags.
+                    self.rate_limiter.wait()
+                    detail = self._mb.get_recording_by_id(mbid, includes=["tags"])
+                    genre_tags = self._extract_tags(detail.get("recording", {}))
+
                 if self.db_conn is not None:
                     db_module.set_cached_lookup(self.db_conn, cache_key, mbid, genre_tags)
                 return mbid, genre_tags
@@ -175,16 +185,14 @@ class MusicBrainzClient:
         return None, None
 
     @staticmethod
-    def _parse_result(result: dict[str, Any]) -> tuple[str | None, str | None]:
-        recordings = result.get("recording-list") or []
+    def _extract_mbid(search_result: dict[str, Any]) -> str | None:
+        recordings = search_result.get("recording-list") or []
         if not recordings:
-            return None, None
+            return None
+        return recordings[0].get("id")
 
-        recording = recordings[0]
-        mbid = recording.get("id")
-
+    @staticmethod
+    def _extract_tags(recording: dict[str, Any]) -> str | None:
         tags = recording.get("tag-list") or []
         names = [t["name"] for t in tags if isinstance(t, dict) and t.get("name")]
-        genre_tags = ",".join(names) if names else None
-
-        return mbid, genre_tags
+        return ",".join(names) if names else None

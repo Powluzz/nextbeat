@@ -40,6 +40,9 @@ class FakeMusicBrainzError(Exception):
 
 
 class FakeMBModule:
+    """Bootst de echte MB-API na: search_recordings() levert geen tags mee,
+    alleen get_recording_by_id(includes=["tags"]) doet dat."""
+
     MusicBrainzError = FakeMusicBrainzError
 
     def __init__(self, mbid="fake-mbid", genres="techno,house"):
@@ -55,8 +58,12 @@ class FakeMBModule:
 
     def search_recordings(self, recording, artist, limit=1):
         self.call_count += 1
+        return {"recording-list": [{"id": self.mbid}]}
+
+    def get_recording_by_id(self, mbid, includes=None):
+        self.call_count += 1
         tags = [{"name": g} for g in self.genres.split(",")] if self.genres else []
-        return {"recording-list": [{"id": self.mbid, "tag-list": tags}]}
+        return {"recording": {"id": mbid, "tag-list": tags}}
 
 
 def _fake_mb_client(config):
