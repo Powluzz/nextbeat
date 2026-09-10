@@ -109,6 +109,22 @@ def test_search_tracks_by_genre(conn):
     assert len(results) == 1
 
 
+def test_search_tracks_by_q_matches_artist_or_title(conn):
+    db.insert_track(conn, _sample_track(filepath="/a.mp3", artist="Daft Punk", title="One More Time"))
+    db.insert_track(conn, _sample_track(filepath="/b.mp3", artist="Justice", title="Genesis"))
+    db.insert_track(conn, _sample_track(filepath="/c.mp3", artist="Someone", title="Daft Song"))
+
+    results = db.search_tracks(conn, q="daft")
+    assert {r["filepath"] for r in results} == {"/a.mp3", "/c.mp3"}
+
+
+def test_search_tracks_limit(conn):
+    for i in range(5):
+        db.insert_track(conn, _sample_track(filepath=f"/{i}.mp3"))
+    results = db.search_tracks(conn, limit=2)
+    assert len(results) == 2
+
+
 def test_delete_track(conn):
     track_id = db.insert_track(conn, _sample_track())
     assert db.delete_track(conn, track_id) is True

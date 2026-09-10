@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dj-engine</title>
+<style>
+  :root {
+    --bg: #14161c;
+    --panel: #1d2029;
+    --panel-2: #262a37;
+    --border: #333748;
+    --text: #e8e9ee;
+    --text-dim: #9297a8;
+    --accent: #5b8cff;
+    --accent-dim: #2a3a63;
+    --good: #4ade80;
+    --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 1.5rem; max-width: 780px; margin: 0 auto;
+  }
+  h1 { font-size: 1.3rem; font-weight: 600; margin: 0 0 1rem; }
+  h1 span { color: var(--text-dim); font-weight: 400; font-size: 0.9rem; }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1rem; margin-bottom: 1rem;
+  }
+
+  /* Zoeken */
+  #search-box { position: relative; margin-bottom: 1rem; }
+  #search-input {
+    width: 100%; padding: 0.7rem 0.9rem; font-size: 1rem;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text);
+  }
+  #search-input:focus { outline: none; border-color: var(--accent); }
+  #search-results {
+    position: absolute; left: 0; right: 0; top: calc(100% + 4px);
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    max-height: 320px; overflow-y: auto; z-index: 10; display: none;
+  }
+  #search-results.open { display: block; }
+  .search-result-row {
+    padding: 0.55rem 0.9rem; cursor: pointer; font-size: 0.92rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .search-result-row:last-child { border-bottom: none; }
+  .search-result-row:hover { background: var(--accent-dim); }
+  .track-meta { color: var(--text-dim); font-size: 0.85rem; }
+
+  /* Huidige track */
+  #current-track { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+  #current-track .empty { color: var(--text-dim); font-style: italic; }
+  #current-track-info .title { font-weight: 600; font-size: 1.05rem; }
+  button {
+    background: var(--accent); color: white; border: none; border-radius: 7px;
+    padding: 0.5rem 0.9rem; font-size: 0.9rem; cursor: pointer; white-space: nowrap;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.secondary { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); }
+  button.small { padding: 0.3rem 0.6rem; font-size: 0.8rem; }
+
+  /* Richting */
+  #direction-picker { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  #direction-picker button { flex: 1; }
+  #direction-picker button.active { background: var(--accent); }
+  #direction-picker button:not(.active) { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); }
+
+  /* Suggesties */
+  .suggestion-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0.6rem 0.1rem; border-bottom: 1px solid var(--border); gap: 0.75rem;
+  }
+  .suggestion-row:last-child { border-bottom: none; }
+  .suggestion-left { flex: 1; min-width: 0; }
+  .suggestion-title { font-weight: 500; }
+  .suggestion-scores { color: var(--text-dim); font-size: 0.82rem; margin-top: 2px; }
+  .suggestion-total { color: var(--good); font-weight: 600; margin-right: 0.5rem; }
+  .llm-row { flex-direction: column; align-items: stretch; }
+  .llm-reason { color: var(--text-dim); font-size: 0.88rem; margin-top: 3px; }
+  .badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 5px; font-size: 0.75rem; margin-left: 0.4rem; }
+  .badge.grounded { background: rgba(74,222,128,0.15); color: var(--good); }
+  .badge.ungrounded { background: rgba(251,191,36,0.15); color: var(--warn); }
+
+  .section-title { font-size: 0.85rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; margin: 0 0 0.6rem; }
+  .row-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+  .status-line { color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem; }
+  .error-line { color: #f87171; font-size: 0.88rem; margin-top: 0.5rem; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<h1>dj-engine <span>lokale recommendation engine</span></h1>
+
+<div id="search-box">
+  <input id="search-input" type="text" placeholder="Zoek op artiest of titel…" autocomplete="off">
+  <div id="search-results"></div>
+</div>
+
+<div class="panel">
+  <div class="section-title">Huidige track</div>
+  <div id="current-track">
+    <div id="current-track-info"><span class="empty">Nog geen track geselecteerd — zoek en klik hierboven.</span></div>
+    <button id="analyze-btn" class="secondary hidden">Analyseer nu</button>
+  </div>
+  <div id="analyze-status" class="status-line hidden"></div>
+</div>
+
+<div id="direction-picker" class="hidden">
+  <button data-direction="build">build</button>
+  <button data-direction="hold">hold</button>
+  <button data-direction="ease">ease</button>
+  <button data-direction="surprise">surprise</button>
+</div>
+
+<div id="suggestions-panel" class="panel hidden">
+  <div class="section-title" id="suggestions-title">Suggesties</div>
+  <div id="suggestions-list"></div>
+  <div class="row-actions">
+    <button id="refine-btn" class="secondary">Verfijn met energie/mood (kan 1-2 min duren)</button>
+    <button id="llm-btn" class="secondary">Vraag AI-mening</button>
+  </div>
+  <div id="suggest-status" class="status-line hidden"></div>
+  <div id="suggest-error" class="error-line hidden"></div>
+</div>
+
+<div id="llm-panel" class="panel hidden">
+  <div class="section-title" id="llm-title">AI-suggestie</div>
+  <div id="llm-list"></div>
+</div>
+
+<script>
+const state = { currentTrackId: null, direction: null };
+
+// --- helpers ---------------------------------------------------------
+
+function fmt(value, decimals = 0) {
+  return value === null || value === undefined ? "?" : Number(value).toFixed(decimals);
+}
+
+function trackLine(t) {
+  return `${t.artist || "?"} - ${t.title || "?"} (${fmt(t.bpm)} BPM, ${t.camelot || "?"}, ${t.genre || "?"})`;
+}
+
+function debounce(fn, delay) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(path, options);
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    const detail = (body && body.detail) || `HTTP ${res.status}`;
+    throw new Error(detail);
+  }
+  return body;
+}
+
+// --- zoeken ------------------------------------------------------------
+
+const searchInput = document.getElementById("search-input");
+const searchResults = document.getElementById("search-results");
+
+const doSearch = debounce(async (q) => {
+  if (!q.trim()) { searchResults.classList.remove("open"); return; }
+  let tracks;
+  try {
+    tracks = await api(`/tracks/search?q=${encodeURIComponent(q)}&limit=15`);
+  } catch (e) {
+    return;
+  }
+  searchResults.innerHTML = tracks.map(t => `
+    <div class="search-result-row" data-id="${t.id}">
+      <div>${t.artist || "?"} - ${t.title || "?"}</div>
+      <div class="track-meta">${fmt(t.bpm)} BPM · ${t.camelot || "?"} · ${t.genre || "?"}</div>
+    </div>
+  `).join("") || `<div class="search-result-row track-meta">Geen resultaten.</div>`;
+  searchResults.classList.add("open");
+}, 250);
+
+searchInput.addEventListener("input", (e) => doSearch(e.target.value));
+searchResults.addEventListener("click", (e) => {
+  const row = e.target.closest(".search-result-row[data-id]");
+  if (!row) return;
+  selectTrack(parseInt(row.dataset.id, 10));
+  searchResults.classList.remove("open");
+  searchInput.value = "";
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#search-box")) searchResults.classList.remove("open");
+});
+
+// --- huidige track -------------------------------------------------------
+
+const currentTrackInfo = document.getElementById("current-track-info");
+const analyzeBtn = document.getElementById("analyze-btn");
+const analyzeStatus = document.getElementById("analyze-status");
+const directionPicker = document.getElementById("direction-picker");
+
+async function selectTrack(id) {
+  const track = await api(`/tracks/${id}`);
+  state.currentTrackId = id;
+  renderCurrentTrack(track);
+  directionPicker.classList.remove("hidden");
+  hide(document.getElementById("llm-panel"));
+  if (state.direction) fetchSuggestions();
+}
+
+function renderCurrentTrack(track) {
+  const analyzed = track.energy_raw !== null;
+  currentTrackInfo.innerHTML = `
+    <div class="title">${track.artist || "?"} - ${track.title || "?"}</div>
+    <div class="track-meta">${fmt(track.bpm)} BPM · ${track.camelot || "?"} · ${track.genre || "?"}
+      ${analyzed ? '<span class="badge grounded">geanalyseerd</span>' : '<span class="badge ungrounded">nog niet geanalyseerd</span>'}
+    </div>`;
+  analyzeBtn.classList.remove("hidden");
+  analyzeBtn.textContent = analyzed ? "Herananalyseer" : "Analyseer nu";
+}
+
+analyzeBtn.addEventListener("click", async () => {
+  if (!state.currentTrackId) return;
+  analyzeBtn.disabled = true;
+  show(analyzeStatus, "Analyseren… (enkele seconden tot ~15s voor langere tracks)");
+  try {
+    const track = await api(`/tracks/${state.currentTrackId}/analyze`, { method: "POST" });
+    renderCurrentTrack(track);
+    hide(analyzeStatus);
+    if (state.direction) fetchSuggestions();
+  } catch (e) {
+    show(analyzeStatus, `Fout: ${e.message}`);
+  } finally {
+    analyzeBtn.disabled = false;
+  }
+});
+
+// --- richting + suggesties -------------------------------------------------
+
+const suggestionsPanel = document.getElementById("suggestions-panel");
+const suggestionsList = document.getElementById("suggestions-list");
+const suggestionsTitle = document.getElementById("suggestions-title");
+const suggestStatus = document.getElementById("suggest-status");
+const suggestError = document.getElementById("suggest-error");
+const refineBtn = document.getElementById("refine-btn");
+const llmBtn = document.getElementById("llm-btn");
+
+directionPicker.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-direction]");
+  if (!btn) return;
+  state.direction = btn.dataset.direction;
+  [...directionPicker.children].forEach(b => b.classList.toggle("active", b === btn));
+  hide(document.getElementById("llm-panel"));
+  fetchSuggestions();
+});
+
+async function fetchSuggestions() {
+  hide(suggestError);
+  show(suggestionsPanel);
+  suggestionsTitle.textContent = "Suggesties — snel (bpm/key/genre)";
+  suggestionsList.innerHTML = `<div class="status-line">Laden…</div>`;
+  try {
+    const data = await api(`/tracks/${state.currentTrackId}/suggest?direction=${state.direction}&top=10`);
+    renderSuggestions(data.results);
+  } catch (e) {
+    suggestionsList.innerHTML = "";
+    show(suggestError, `Fout: ${e.message}`);
+  }
+}
+
+function renderSuggestions(results) {
+  if (!results.length) {
+    suggestionsList.innerHTML = `<div class="status-line">Geen suggesties gevonden.</div>`;
+    return;
+  }
+  suggestionsList.innerHTML = results.map(r => `
+    <div class="suggestion-row" data-id="${r.track.id}">
+      <div class="suggestion-left">
+        <div class="suggestion-title">${trackLine(r.track)}</div>
+        <div class="suggestion-scores">
+          key=${fmt(r.breakdown.key)} bpm=${fmt(r.breakdown.bpm)}
+          energy=${fmt(r.breakdown.energy)} mood=${fmt(r.breakdown.mood)}
+        </div>
+      </div>
+      <div>
+        <span class="suggestion-total">${fmt(r.total_score, 1)}</span>
+        <button class="small" data-next="${r.track.id}">Dit wordt de volgende</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+suggestionsList.addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-next]");
+  if (!btn) return;
+  const nextId = parseInt(btn.dataset.next, 10);
+  await api("/transitions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ from_track_id: state.currentTrackId, to_track_id: nextId, direction: state.direction }),
+  });
+  selectTrack(nextId);
+});
+
+refineBtn.addEventListener("click", async () => {
+  refineBtn.disabled = true;
+  show(suggestStatus, "Verfijnen met energie/mood-analyse — dit kan 1-2 minuten duren…");
+  hide(suggestError);
+  try {
+    const data = await api(`/tracks/${state.currentTrackId}/refine?direction=${state.direction}&top=10`, { method: "POST" });
+    suggestionsTitle.textContent = `Suggesties — ververst (${data.refined_count} tracks aangevuld)`;
+    renderSuggestions(data.suggestions.results);
+    hide(suggestStatus);
+  } catch (e) {
+    hide(suggestStatus);
+    show(suggestError, `Fout: ${e.message}`);
+  } finally {
+    refineBtn.disabled = false;
+  }
+});
+
+// --- AI-suggestie -----------------------------------------------------
+
+const llmPanel = document.getElementById("llm-panel");
+const llmTitle = document.getElementById("llm-title");
+const llmList = document.getElementById("llm-list");
+
+llmBtn.addEventListener("click", async () => {
+  llmBtn.disabled = true;
+  show(llmPanel);
+  llmTitle.textContent = "AI-suggestie";
+  llmList.innerHTML = `<div class="status-line">AI wordt geraadpleegd… (kan 10-30s duren)</div>`;
+  try {
+    const data = await api(`/tracks/${state.currentTrackId}/suggest-llm?direction=${state.direction}&top=10`, { method: "POST" });
+    const searchNote = data.used_search ? "met websearch" : "zonder websearch (model-kennis alleen)";
+    llmTitle.textContent = `AI-suggestie (${data.provider || "?"}/${data.model || "?"}, ${searchNote})`;
+    if (!data.results.length) {
+      llmList.innerHTML = `<div class="status-line">Geen (bruikbare) AI-suggesties ontvangen.</div>`;
+      return;
+    }
+    llmList.innerHTML = data.results.map(r => `
+      <div class="suggestion-row llm-row">
+        <div class="suggestion-title">${trackLine(r.track)}
+          <span class="badge ${r.gegrond_op_bron ? "grounded" : "ungrounded"}">${r.gegrond_op_bron ? "✓ bron" : "geen bron"}</span>
+        </div>
+        <div class="llm-reason">${r.reden}</div>
+      </div>
+    `).join("");
+  } catch (e) {
+    llmList.innerHTML = `<div class="error-line">Fout: ${e.message}</div>`;
+  } finally {
+    llmBtn.disabled = false;
+  }
+});
+
+// --- kleine dom-helpers --------------------------------------------------
+
+function show(el, text) { if (text !== undefined) el.textContent = text; el.classList.remove("hidden"); }
+function hide(el) { el.classList.add("hidden"); }
+</script>
+</body>
+</html>

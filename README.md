@@ -39,9 +39,10 @@ Zie `BUILD_SPEC.md` voor de volledige oorspronkelijke opdracht.
       [AI-suggestie](#ai-suggestie-source-llm) hieronder
 - [x] Lokale config-override (`config.local.yaml`, niet in git) voor
       machine-specifieke instellingen zoals `rekordbox.path_mapping`
-- [ ] Web-UI/FastAPI
+- [x] Web-UI (`dj-engine serve`) — FastAPI + één statische pagina, zie
+      [Web-UI](#web-ui) hieronder
 
-266 tests, allemaal groen (`pytest -q`).
+286 tests, allemaal groen (`pytest -q`).
 
 ## Installatie
 
@@ -196,6 +197,27 @@ De output toont altijd expliciet of websearch daadwerkelijk gebruikt is
 suggestie of de onderbouwing op een gevonden bron steunt (`✓ bron`) —
 zodat jij weet hoeveel vertrouwen je aan welk antwoord geeft.
 
+## Web-UI
+
+```bash
+pip install -e ".[api]"     # fastapi + uvicorn
+dj-engine serve              # http://127.0.0.1:8000/
+```
+
+Eén pagina, precies de live-lus: zoek/selecteer de huidige track → kies een
+richting → snelle suggesties (altijd beschikbaar) → optioneel **Verfijn met
+energie/mood** (kan 1-2 minuten duren op een echte shortlist — bewuste,
+blocking knop, geen achtergrondtaak/polling) → optioneel **Vraag AI-mening**
+→ klik een suggestie om 'm als volgende track te bevestigen (logt de
+overgang in `transitions`, wordt de nieuwe huidige track).
+
+Standaard alleen op `127.0.0.1` (geen authenticatie ingebouwd). Backend-only
+acties (`import-rekordbox`, `normalize-energy`, `set-api-key`) staan bewust
+niet in de UI — dat zijn eenmalige/onderhoudstaken, geen onderdeel van de
+live pick→suggest→confirm-lus; gebruik daarvoor de CLI.
+
+API-documentatie (Swagger, automatisch door FastAPI): `http://127.0.0.1:8000/docs`.
+
 ## Testen
 
 ```bash
@@ -209,6 +231,18 @@ meegeleverd. MusicBrainz-netwerkcalls zijn in alle tests gemockt.
 
 ## Ontwerpkeuzes die niet 1-op-1 in BUILD_SPEC.md staan
 
+- **`POST /tracks/{id}/analyze` normaliseert energy meteen**, in
+  tegenstelling tot de CLI's `analyze`-commando (die de periodieke drempel
+  gebruikt, zie hierboven). De web-UI analyseert typisch de nu-spelende
+  track vlak vóórdat er suggesties voor gevraagd worden — energy_score()
+  vergelijkt altijd t.o.v. díe track, dus moet `energy` daar direct na
+  bruikbaar zijn. `normalize_energy()` is een goedkope SQL-pass (geen
+  audio-analyse), dus dit kost niets extra's.
+- **`uvicorn.run(..., ws="none")`**: dit systeem heeft een verouderd
+  systeembreed `websockets`-pakket dat botst met uvicorn's auto-detectie
+  (`ImportError: cannot import name 'ServerProtocol'`) — de app gebruikt
+  toch geen WebSockets (de blocking-knop-aanpak voor verfijning/AI-
+  suggestie heeft dat niet nodig), dus expliciet uitgeschakeld.
 - **AI-suggestie is provider-onafhankelijk, niet Claude-only** (op
   expliciet verzoek): `enrichment/llm_providers/` is een kleine
   adapter-laag (`base.py` definieert het contract, elke provider

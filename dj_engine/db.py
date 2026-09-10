@@ -179,8 +179,15 @@ def search_tracks(
     genre: str | None = None,
     bpm_min: float | None = None,
     bpm_max: float | None = None,
+    q: str | None = None,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Zoek tracks op combinatie van filters (allemaal optioneel, AND-gecombineerd)."""
+    """Zoek tracks op combinatie van filters (allemaal optioneel, AND-gecombineerd).
+
+    `q` is een losse vrije-tekstzoekopdracht (artist OF title) — bedoeld
+    voor een live zoekbalk (bv. de web-UI's tracklookup), los van de
+    losse `artist`-filter hierboven.
+    """
     clauses: list[str] = []
     params: list[Any] = []
 
@@ -196,11 +203,17 @@ def search_tracks(
     if bpm_max is not None:
         clauses.append("bpm <= ?")
         params.append(bpm_max)
+    if q:
+        clauses.append("(artist LIKE ? OR title LIKE ?)")
+        params.extend([f"%{q}%", f"%{q}%"])
 
     query = "SELECT * FROM tracks"
     if clauses:
         query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY id"
+    if limit is not None:
+        query += " LIMIT ?"
+        params.append(limit)
 
     rows = conn.execute(query, params).fetchall()
     return [dict(r) for r in rows]

@@ -9,6 +9,7 @@ Commando's:
     dj-engine search --artist "..." --genre "..." --bpm-range 120-128
     dj-engine stats
     dj-engine set-api-key <key>
+    dj-engine serve [--host 127.0.0.1] [--port 8000]
 """
 from __future__ import annotations
 
@@ -368,8 +369,8 @@ def normalize_energy_cmd(ctx: click.Context) -> None:
 def set_api_key_cmd(api_key: str, var_name: str) -> None:
     """Sla een API-key handmatig op in .env (nooit in git, zie .gitignore).
 
-    Infrastructuur voor de nog niet gebouwde optionele AI-suggestiebron
-    (config: claude_api) — dit commando zet alleen de key klaar.
+    Voor de AI-suggestiebron (config: llm_suggest, --source llm bij
+    `suggest`) — dit commando zet alleen de key klaar.
     """
     env_path = Path(".env")
     lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
@@ -378,6 +379,39 @@ def set_api_key_cmd(api_key: str, var_name: str) -> None:
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     click.echo(f"{var_name} opgeslagen in .env (niet in git).")
+
+
+@main.command()
+@click.option("--host", default="127.0.0.1", show_default=True, help="Alleen localhost tenzij je bewust kiest voor 0.0.0.0 — geen authenticatie ingebouwd.")
+@click.option("--port", default=8000, show_default=True, type=int)
+@click.pass_context
+def serve(ctx: click.Context, host: str, port: int) -> None:
+    """Start de lokale web-UI (FastAPI + statische pagina) op http://host:port/.
+
+    Live pick -> suggest -> confirm-lus voor tijdens het draaien of
+    setvoorbereiding. import-rekordbox/normalize-energy/set-api-key blijven
+    bewust CLI-only (eenmalige/onderhoudsacties, geen onderdeel van de
+    live-lus) — gebruik die apart vóór je de UI start.
+    """
+    try:
+        import uvicorn
+    except ImportError as exc:
+        click.echo(f"'uvicorn' is niet geïnstalleerd: {exc}. Installeer met: pip install dj-engine[api]", err=True)
+        sys.exit(1)
+
+    from dj_engine.api.main import create_app
+
+    config = ctx.obj["config"]
+    app = create_app(config)
+    click.echo(f"dj-engine web-UI op http://{host}:{port}/")
+    # ws="none": deze app gebruikt geen WebSockets. Voorkomt bovendien dat
+    # uvicorn's auto-detectie kan botsen met een incompatibel systeembreed
+    # geïnstalleerd 'websockets'-pakket naast een user-geïnstalleerde uvicorn.
+    uvicorn.run(
+        app, host=host, port=port,
+        log_level=config.get("logging", {}).get("level", "info").lower(),
+        ws="none",
+    )
 
 
 if __name__ == "__main__":
