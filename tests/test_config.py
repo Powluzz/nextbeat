@@ -26,6 +26,36 @@ def test_load_config_user_yaml_overrides_defaults(tmp_path):
     assert config["analysis_pool"]["workers"] == 4
 
 
+def test_load_config_local_override_wins_over_base(tmp_path):
+    (tmp_path / "config.yaml").write_text(
+        "rekordbox:\n  path_mapping:\n    - from: 'shared'\n      to: 'shared-target'\n"
+    )
+    (tmp_path / "config.local.yaml").write_text(
+        "rekordbox:\n  path_mapping:\n    - from: 'C:/Users/mij/Music'\n      to: '/home/mij/muziek'\n"
+    )
+
+    config = load_config(tmp_path / "config.yaml")
+
+    assert config["rekordbox"]["path_mapping"] == [{"from": "C:/Users/mij/Music", "to": "/home/mij/muziek"}]
+
+
+def test_load_config_local_override_without_base_file(tmp_path):
+    """De local-override moet ook werken als config.yaml zelf niet bestaat
+    (dan gelden de ingebouwde defaults + de local-override erbovenop)."""
+    (tmp_path / "config.local.yaml").write_text("database:\n  path: 'ergens.db'\n")
+
+    config = load_config(tmp_path / "config.yaml")
+
+    assert config["database"]["path"] == "ergens.db"
+    assert config["scoring"]["bpm_max_deviation_pct"] == 8.0  # defaults blijven staan
+
+
+def test_load_config_no_local_override_file_is_fine(tmp_path):
+    (tmp_path / "config.yaml").write_text("database:\n  path: 'x.db'\n")
+    config = load_config(tmp_path / "config.yaml")
+    assert config["database"]["path"] == "x.db"
+
+
 def test_load_config_partial_override_keeps_sibling_defaults(tmp_path):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("scoring:\n  energy_renormalize_threshold: 5\n")

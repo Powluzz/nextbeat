@@ -77,6 +77,13 @@ extensies, MusicBrainz rate limit/User-Agent, modelpaden, scoringsgewichten
 en -doelwaarden per richting). Gebruik `dj-engine --config pad/naar/eigen.yaml`
 om een alternatieve config te gebruiken.
 
+**Drie lagen**, hoog naar laag prioriteit: `config.local.yaml` >
+`config.yaml` > ingebouwde defaults. `config.local.yaml` (zie
+`config.local.yaml.example`) wordt automatisch meegeladen als het bestaat,
+staat in `.gitignore`, en is bedoeld voor machine-/persoonsspecifieke
+waarden die niet in git horen — op dit moment vooral
+`rekordbox.path_mapping` (een absoluut pad naar jouw eigen muziekmap).
+
 ## Gebruik
 
 ```bash
@@ -110,8 +117,12 @@ bpm/key geanalyseerd. Workflow:
 # 2. Snelle catalogusimport (geen audio-decode, ~1s voor 7000+ tracks):
 dj-engine import-rekordbox bibliotheek.xml
 
-# 3. Vul rekordbox.path_mapping in config.yaml in als Rekordbox een ander
-#    pad gebruikt (bv. Windows) dan waar dj-engine draait:
+# 3. Vul rekordbox.path_mapping in als Rekordbox een ander pad gebruikt
+#    (bv. Windows) dan waar dj-engine draait. Dit is persoonlijk/machine-
+#    specifiek -- hoort niet in config.yaml (git), maar in config.local.yaml
+#    (genegeerd door git, wordt automatisch meegeladen):
+cp config.local.yaml.example config.local.yaml
+#    # pas config.local.yaml aan:
 #    rekordbox:
 #      path_mapping:
 #        - from: "C:/Users/naam/Music/DJ Muziek"

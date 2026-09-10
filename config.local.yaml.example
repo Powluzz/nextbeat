@@ -1,0 +1,17 @@
+# Sjabloon voor config.local.yaml — machine-/persoonsspecifieke instellingen
+# die niet in git horen (bv. een absoluut pad naar jouw eigen muziekmap).
+#
+# Gebruik:
+#   cp config.local.yaml.example config.local.yaml
+#   # pas daarna config.local.yaml aan naar jouw situatie
+#
+# config.local.yaml wordt automatisch meegeladen naast config.yaml (zie
+# dj_engine/config.py::load_config) en overschrijft daar waar het overlapt.
+# Het bestand zelf staat in .gitignore — wordt nooit gecommit.
+
+rekordbox:
+  # Voorbeeld: Rekordbox draait op Windows, dj-engine hier op Linux, en de
+  # Windows-schijf is via een mount bereikbaar.
+  path_mapping:
+    - from: "C:/Users/jouw-naam/Music"
+      to: "/pad/naar/gemounte/of/gesyncte/muziekmap"

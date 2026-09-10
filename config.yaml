@@ -38,13 +38,13 @@ models:
 rekordbox:
   # Prefix-herschrijfregels voor Rekordbox' opgeslagen paden (vaak Windows,
   # bv. "C:/Users/naam/Music") naar een pad dat op dit systeem bestaat.
-  # Voorbeeld:
-  #   path_mapping:
-  #     - from: "C:/Users/paulm/Music/DJ Muziek"
-  #       to: "/mnt/music/dj"
   # Leeg = paden ongewijzigd laten. `import-rekordbox` werkt dan alleen op
   # metadata-niveau (bpm/key/genre) totdat dit ingevuld is — `analyze`/
   # `refine` geven een duidelijke 'bestand niet gevonden'-fout.
+  #
+  # Dit pad is persoonlijk/machine-specifiek — hoort niet in git. Zet 'm in
+  # config.local.yaml (zelfde map, automatisch meegeladen als hij bestaat,
+  # staat in .gitignore) i.p.v. hier. Zie config.local.yaml.example.
   path_mapping: []
 
 suggest:

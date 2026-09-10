@@ -103,8 +103,29 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
+def _local_override_path(config_path: Path) -> Path:
+    """'config.yaml' -> 'config.local.yaml' (zelfde map)."""
+    return config_path.with_name(f"{config_path.stem}.local{config_path.suffix}")
+
+
+def _read_yaml(path: Path) -> dict[str, Any]:
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
 def load_config(path: str | Path | None = None) -> dict[str, Any]:
-    """Laad config.yaml en vul ontbrekende waarden aan met defaults.
+    """Laad config.yaml, vul aan met defaults, en merge er een lokale
+    override-laag overheen indien aanwezig.
+
+    Precedentie (hoog naar laag): config.local.yaml > config.yaml > defaults.
+
+    De local-override is bedoeld voor machine-/persoonsspecifieke waarden
+    die niet in git horen (bv. rekordbox.path_mapping — een absoluut pad
+    naar iemands eigen muziekmap). Zie config.local.yaml.example. Het
+    bestand heet altijd '<stem-van-path>.local<extensie>' in dezelfde map
+    als `path` (default: config.local.yaml naast config.yaml) en staat in
+    .gitignore — het wordt hier automatisch meegeladen als het bestaat,
+    zonder dat je er zelf naar hoeft te verwijzen.
 
     Args:
         path: pad naar config.yaml. Default: config.yaml in projectroot.
@@ -113,13 +134,16 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
         Genest dict met configuratie.
     """
     config_path = Path(path) if path is not None else DEFAULT_CONFIG_PATH
-    if not config_path.exists():
-        return copy.deepcopy(_DEFAULTS)
 
-    with open(config_path, "r", encoding="utf-8") as f:
-        user_config = yaml.safe_load(f) or {}
+    result = copy.deepcopy(_DEFAULTS)
+    if config_path.exists():
+        result = _deep_merge(result, _read_yaml(config_path))
 
-    return _deep_merge(_DEFAULTS, user_config)
+    local_path = _local_override_path(config_path)
+    if local_path.exists():
+        result = _deep_merge(result, _read_yaml(local_path))
+
+    return result
 
 
 def load_dotenv(path: str | Path = ".env") -> None:

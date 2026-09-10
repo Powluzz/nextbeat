@@ -29,5 +29,6 @@ bibliotheek.xml
 models/*.pb
 models/*.json
 
-# Lokale config met eventuele secrets
+# Lokale config met eventuele secrets/persoonlijke paden
 .env
+config.local.yaml
