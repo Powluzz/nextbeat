@@ -189,3 +189,33 @@ def load_dotenv(path: str | Path = ".env") -> None:
         value = value.strip().strip('"').strip("'")
         if key:
             os.environ.setdefault(key, value)
+
+
+def write_env_var(var_name: str, value: str, path: str | Path = ".env", set_process_env: bool = True) -> None:
+    """Zet (of overschrijft) één KEY=VALUE-regel in een .env-bestand.
+
+    Gedeelde helper voor zowel de CLI (`dj-engine set-api-key`) als de
+    web-UI (`POST /settings/api-key`) — één plek voor deze logica.
+
+    Args:
+        var_name: environment-variabelenaam, bv. "ANTHROPIC_API_KEY".
+        value: de waarde (bv. de API-key). Nooit gelogd of teruggegeven.
+        path: pad naar het .env-bestand (default: .env in de werkmap).
+        set_process_env: als True (default) wordt ook `os.environ[var_name]`
+            meteen bijgewerkt in dit proces — zodat een al lopende server
+            (dj-engine serve) de nieuwe key meteen kan gebruiken, zonder
+            herstart. Voor de CLI (die toch stopt na dit commando) maakt
+            dit niets uit; voor de web-UI is dit de reden dat dit apart
+            bestaat naast alleen het bestand schrijven.
+    """
+    if not var_name or not var_name.strip():
+        raise ValueError("var_name mag niet leeg zijn")
+
+    env_path = Path(path)
+    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+    lines = [line for line in lines if not line.startswith(f"{var_name}=")]
+    lines.append(f"{var_name}={value}")
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    if set_process_env:
+        os.environ[var_name] = value

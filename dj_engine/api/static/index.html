@@ -93,6 +93,20 @@
   .status-line { color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem; }
   .error-line { color: #f87171; font-size: 0.88rem; margin-top: 0.5rem; }
   .hidden { display: none !important; }
+
+  /* AI-instellingen (API-key) */
+  #llm-key-widget { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  #llm-key-form { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+  .text-input {
+    padding: 0.4rem 0.6rem; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-size: 0.88rem;
+  }
+  .text-input:focus { outline: none; border-color: var(--accent); }
+  #llm-key-input { flex: 1; }
+  .link-btn {
+    background: none; border: none; color: var(--accent); font-size: 0.8rem;
+    padding: 0; cursor: pointer; text-decoration: underline;
+  }
 </style>
 </head>
 <body>
@@ -129,6 +143,17 @@
   </div>
   <div id="suggest-status" class="status-line hidden"></div>
   <div id="suggest-error" class="error-line hidden"></div>
+
+  <div id="llm-key-widget" class="status-line">
+    AI: <span id="llm-provider-label">…</span>
+    — sleutel: <span id="llm-key-badge"></span>
+    <button id="llm-key-toggle" class="link-btn">wijzig</button>
+  </div>
+  <div id="llm-key-form" class="hidden">
+    <input id="llm-key-input" class="text-input" type="password" placeholder="API-key…" autocomplete="off">
+    <button id="llm-key-save" class="small">Opslaan</button>
+  </div>
+  <div id="llm-key-status" class="status-line hidden"></div>
 </div>
 
 <div id="llm-panel" class="panel hidden">
@@ -333,6 +358,66 @@ refineBtn.addEventListener("click", async () => {
 const llmPanel = document.getElementById("llm-panel");
 const llmTitle = document.getElementById("llm-title");
 const llmList = document.getElementById("llm-list");
+
+// --- AI-instellingen (API-key), i.p.v. via de CLI -------------------------
+
+const llmProviderLabel = document.getElementById("llm-provider-label");
+const llmKeyBadge = document.getElementById("llm-key-badge");
+const llmKeyToggle = document.getElementById("llm-key-toggle");
+const llmKeyForm = document.getElementById("llm-key-form");
+const llmKeyInput = document.getElementById("llm-key-input");
+const llmKeySave = document.getElementById("llm-key-save");
+const llmKeyStatus = document.getElementById("llm-key-status");
+
+let llmSettings = null;
+
+async function loadLlmSettings() {
+  try {
+    llmSettings = await api("/settings/llm");
+  } catch (e) {
+    return; // stil falen -- widget blijft op de initiële "…"-placeholder
+  }
+  llmProviderLabel.textContent = `${llmSettings.provider}/${llmSettings.model || "?"}`;
+  if (llmSettings.api_key_configured) {
+    llmKeyBadge.innerHTML = `<span class="badge grounded">✓ ingesteld</span>`;
+    llmKeyToggle.textContent = "wijzig";
+  } else {
+    llmKeyBadge.innerHTML = `<span class="badge ungrounded">ontbreekt (${llmSettings.api_key_env_var})</span>`;
+    llmKeyToggle.textContent = "instellen";
+  }
+}
+
+llmKeyToggle.addEventListener("click", () => {
+  llmKeyForm.classList.toggle("hidden");
+  if (!llmKeyForm.classList.contains("hidden")) llmKeyInput.focus();
+});
+llmKeyInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") llmKeySave.click();
+});
+
+llmKeySave.addEventListener("click", async () => {
+  const key = llmKeyInput.value.trim();
+  if (!key) return;
+  llmKeySave.disabled = true;
+  hide(llmKeyStatus);
+  try {
+    await api("/settings/api-key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: key }),
+    });
+    llmKeyInput.value = "";
+    llmKeyForm.classList.add("hidden");
+    show(llmKeyStatus, "API-key opgeslagen — meteen bruikbaar, geen herstart nodig.");
+    await loadLlmSettings();
+  } catch (e) {
+    show(llmKeyStatus, `Fout: ${e.message}`);
+  } finally {
+    llmKeySave.disabled = false;
+  }
+});
+
+loadLlmSettings();
 
 llmBtn.addEventListener("click", async () => {
   llmBtn.disabled = true;

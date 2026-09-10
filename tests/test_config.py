@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-from dj_engine.config import load_config, load_dotenv
+from dj_engine.config import load_config, load_dotenv, write_env_var
 
 
 def test_load_config_missing_file_returns_defaults(tmp_path):
@@ -102,3 +102,45 @@ def test_load_dotenv_ignores_comments_and_blank_lines(tmp_path, monkeypatch):
 
     assert os.environ["DJ_ENGINE_TEST_VAR2"] == "quoted value"
     del os.environ["DJ_ENGINE_TEST_VAR2"]
+
+
+# --- write_env_var --------------------------------------------------------
+
+def test_write_env_var_creates_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("DJ_TEST_KEY", raising=False)
+    env_file = tmp_path / ".env"
+
+    write_env_var("DJ_TEST_KEY", "secret123", path=env_file)
+
+    assert env_file.read_text() == "DJ_TEST_KEY=secret123\n"
+
+
+def test_write_env_var_replaces_existing_value_keeps_others(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("DJ_TEST_KEY=old\nOTHER=keep-me\n")
+
+    write_env_var("DJ_TEST_KEY", "new", path=env_file)
+
+    content = env_file.read_text()
+    assert "DJ_TEST_KEY=new" in content
+    assert "old" not in content
+    assert "OTHER=keep-me" in content
+
+
+def test_write_env_var_updates_process_environ_by_default(tmp_path, monkeypatch):
+    monkeypatch.delenv("DJ_TEST_KEY", raising=False)
+    write_env_var("DJ_TEST_KEY", "live-value", path=tmp_path / ".env")
+    assert os.environ["DJ_TEST_KEY"] == "live-value"
+    del os.environ["DJ_TEST_KEY"]
+
+
+def test_write_env_var_can_skip_process_environ(tmp_path, monkeypatch):
+    monkeypatch.delenv("DJ_TEST_KEY_2", raising=False)
+    write_env_var("DJ_TEST_KEY_2", "value", path=tmp_path / ".env", set_process_env=False)
+    assert "DJ_TEST_KEY_2" not in os.environ
+
+
+def test_write_env_var_empty_var_name_raises(tmp_path):
+    import pytest
+    with pytest.raises(ValueError):
+        write_env_var("", "value", path=tmp_path / ".env")

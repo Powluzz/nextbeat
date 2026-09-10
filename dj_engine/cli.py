@@ -15,13 +15,12 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-from pathlib import Path
 from typing import Any
 
 import click
 
 from dj_engine import db as db_module
-from dj_engine.config import load_config, load_dotenv
+from dj_engine.config import load_config, load_dotenv, write_env_var
 from dj_engine.enrichment.llm_providers import LLMProviderError
 from dj_engine.enrichment.musicbrainz_client import MusicBrainzClient
 from dj_engine.enrichment.rekordbox_client import parse_rekordbox_xml
@@ -370,14 +369,11 @@ def set_api_key_cmd(api_key: str, var_name: str) -> None:
     """Sla een API-key handmatig op in .env (nooit in git, zie .gitignore).
 
     Voor de AI-suggestiebron (config: llm_suggest, --source llm bij
-    `suggest`) — dit commando zet alleen de key klaar.
+    `suggest`) — dit commando zet alleen de key klaar. Kan ook via de
+    web-UI (POST /settings/api-key, zie api/main.py) — zelfde onderliggende
+    write_env_var()-helper.
     """
-    env_path = Path(".env")
-    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
-    lines = [line for line in lines if not line.startswith(f"{var_name}=")]
-    lines.append(f"{var_name}={api_key}")
-    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
+    write_env_var(var_name, api_key)
     click.echo(f"{var_name} opgeslagen in .env (niet in git).")
 
 

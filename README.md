@@ -33,7 +33,8 @@ Zie `BUILD_SPEC.md` voor de volledige oorspronkelijke opdracht.
 - [x] `suggest`: eerst snelle score (bpm/key/genre), dan achtergrond-
       verfijning met energie/mood voor de kansrijkste kandidaten
       (`recommend/refine.py`, multiprocessing)
-- [x] Handmatige API-key-opslag (`set-api-key`, schrijft naar `.env`)
+- [x] API-key-opslag: CLI (`set-api-key`) én in de web-UI zelf, schrijft
+      naar `.env`, meteen bruikbaar zonder herstart
 - [x] AI-suggestiebron (`suggest ... --source llm`), provider-onafhankelijk:
       Claude (met websearch) of elke eigen OpenAI-compatibele API — zie
       [AI-suggestie](#ai-suggestie-source-llm) hieronder
@@ -42,7 +43,7 @@ Zie `BUILD_SPEC.md` voor de volledige oorspronkelijke opdracht.
 - [x] Web-UI (`dj-engine serve`) — FastAPI + één statische pagina, zie
       [Web-UI](#web-ui) hieronder
 
-286 tests, allemaal groen (`pytest -q`).
+298 tests, allemaal groen (`pytest -q`).
 
 ## Installatie
 
@@ -211,10 +212,19 @@ blocking knop, geen achtergrondtaak/polling) → optioneel **Vraag AI-mening**
 → klik een suggestie om 'm als volgende track te bevestigen (logt de
 overgang in `transitions`, wordt de nieuwe huidige track).
 
-Standaard alleen op `127.0.0.1` (geen authenticatie ingebouwd). Backend-only
-acties (`import-rekordbox`, `normalize-energy`, `set-api-key`) staan bewust
-niet in de UI — dat zijn eenmalige/onderhoudstaken, geen onderdeel van de
-live pick→suggest→confirm-lus; gebruik daarvoor de CLI.
+**API-key instellen kan direct in de UI** (niet alleen via
+`dj-engine set-api-key`): bij "Vraag AI-mening" staat een statusregel
+("sleutel: ✓ ingesteld" / "ontbreekt") met een **wijzig/instellen**-knop —
+typ de key, **Opslaan**, en hij is meteen bruikbaar in diezelfde, al
+lopende server (schrijft naar `.env` én zet 'm direct in het proces-
+environment, geen herstart nodig). Endpoints: `GET /settings/llm` (status,
+nooit de key zelf), `POST /settings/api-key`.
+
+Standaard alleen op `127.0.0.1` (geen authenticatie ingebouwd) — de key
+gaat dus alleen over localhost. Backend-only onderhoudsacties
+(`import-rekordbox`, `normalize-energy`) staan bewust niet in de UI —
+eenmalige taken, geen onderdeel van de live pick→suggest→confirm-lus;
+gebruik daarvoor de CLI.
 
 API-documentatie (Swagger, automatisch door FastAPI): `http://127.0.0.1:8000/docs`.
 
@@ -231,6 +241,16 @@ meegeleverd. MusicBrainz-netwerkcalls zijn in alle tests gemockt.
 
 ## Ontwerpkeuzes die niet 1-op-1 in BUILD_SPEC.md staan
 
+- **Frontend-JS is echt uitgevoerd getest, niet alleen gelezen**: er is
+  geen node/browser-tooling in dit project (bewust — "geen zware
+  frontend-stack"), maar de pagina-JS is tijdens ontwikkeling wél
+  geverifieerd door 'm in echte V8 (`py_mini_racer`) te draaien tegen een
+  minimale DOM/fetch-mock die de daadwerkelijke initiële CSS-classes uit
+  `index.html` overneemt — inclusief het echt aanklikken van de
+  API-key-widget en het controleren van de resulterende DOM-state en
+  fetch-aanroepen. Geen permanente testinfrastructuur (geen npm/node-
+  dependency toegevoegd aan het project), puur een eenmalige
+  verificatiestap.
 - **`POST /tracks/{id}/analyze` normaliseert energy meteen**, in
   tegenstelling tot de CLI's `analyze`-commando (die de periodieke drempel
   gebruikt, zie hierboven). De web-UI analyseert typisch de nu-spelende

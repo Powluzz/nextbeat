@@ -4,6 +4,7 @@ audiofixtures; LLM-provider-calls zijn gemockt (geen netwerk).
 """
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -246,3 +247,89 @@ def test_log_transition_with_rating(client, conn):
     assert response.status_code == 201
     transitions = db.get_transitions(conn)
     assert transitions[0]["rating"] == 5
+
+
+# --- settings/llm + settings/api-key --------------------------------------
+
+def test_get_llm_settings_key_not_configured(client, config, monkeypatch):
+    monkeypatch.delenv(config["llm_suggest"]["api_key_env_var"], raising=False)
+
+    response = client.get("/settings/llm")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "anthropic"
+    assert body["api_key_env_var"] == config["llm_suggest"]["api_key_env_var"]
+    assert body["api_key_configured"] is False
+
+
+def test_get_llm_settings_key_configured(client, config, monkeypatch):
+    monkeypatch.setenv(config["llm_suggest"]["api_key_env_var"], "sk-test")
+    response = client.get("/settings/llm")
+    assert response.json()["api_key_configured"] is True
+
+
+def test_set_api_key_writes_env_file_and_updates_process_env(client, tmp_path, monkeypatch, config):
+    monkeypatch.chdir(tmp_path)
+    var_name = config["llm_suggest"]["api_key_env_var"]
+    monkeypatch.delenv(var_name, raising=False)
+
+    response = client.post("/settings/api-key", json={"api_key": "sk-newkey"})
+
+    assert response.status_code == 204
+    assert (tmp_path / ".env").read_text().strip() == f"{var_name}=sk-newkey"
+    assert os.environ[var_name] == "sk-newkey"
+
+
+def test_set_api_key_reflected_in_settings_afterward(client, tmp_path, monkeypatch, config):
+    monkeypatch.chdir(tmp_path)
+    var_name = config["llm_suggest"]["api_key_env_var"]
+    monkeypatch.delenv(var_name, raising=False)
+
+    assert client.get("/settings/llm").json()["api_key_configured"] is False
+    client.post("/settings/api-key", json={"api_key": "sk-newkey"})
+    assert client.get("/settings/llm").json()["api_key_configured"] is True
+
+
+def test_set_api_key_custom_var_name(client, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MY_CUSTOM_KEY", raising=False)
+
+    response = client.post("/settings/api-key", json={"api_key": "abc", "var_name": "MY_CUSTOM_KEY"})
+
+    assert response.status_code == 204
+    assert os.environ["MY_CUSTOM_KEY"] == "abc"
+
+
+def test_set_api_key_empty_string_returns_400(client, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    response = client.post("/settings/api-key", json={"api_key": "   "})
+    assert response.status_code == 400
+
+
+def test_set_api_key_then_llm_call_works_without_restart(client, conn, tmp_path, monkeypatch, config):
+    """Kern van deze feature: een net via de UI gezette key moet meteen
+    bruikbaar zijn in dezelfde, al lopende serverinstantie — geen herstart."""
+    monkeypatch.chdir(tmp_path)
+    var_name = config["llm_suggest"]["api_key_env_var"]
+    monkeypatch.delenv(var_name, raising=False)
+
+    current_id = _insert(conn, title="current")
+    cand_id = _insert(conn, filepath="/b.mp3", title="cand")
+
+    # Vóór het zetten van de key: provider zou LLMProviderError geven
+    # ("Geen API-key gevonden") — hier gemockt zodat we alleen het
+    # environment-doorwerkingseffect testen, niet de provider zelf opnieuw.
+    class _FakeProvider:
+        def complete(self, prompt, cfg):
+            assert os.environ.get(var_name) == "sk-live-test"  # bewijs: al gezien door de provider-call
+            return LLMResponse(text=f'[{{"track_id": {cand_id}, "reden": "ok", "gegrond_op_bron": false}}]',
+                                used_search=False, model="m")
+
+    monkeypatch.setattr("dj_engine.recommend.llm_suggest.get_provider", lambda config: _FakeProvider())
+
+    set_key_response = client.post("/settings/api-key", json={"api_key": "sk-live-test"})
+    assert set_key_response.status_code == 204
+
+    suggest_response = client.post(f"/tracks/{current_id}/suggest-llm", params={"direction": "build"})
+    assert suggest_response.status_code == 200, suggest_response.text

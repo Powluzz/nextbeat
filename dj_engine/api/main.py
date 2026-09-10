@@ -2,13 +2,16 @@
 nieuwe logica — alleen HTTP eromheen.
 
 Bewust buiten scope (blijven CLI-only, zie cli.py): import-rekordbox,
-normalize-energy, set-api-key — eenmalige/onderhoudsacties, geen onderdeel
-van de live pick->suggest->confirm-lus die deze UI ondersteunt.
+normalize-energy — eenmalige/onderhoudsacties, geen onderdeel van de live
+pick->suggest->confirm-lus die deze UI ondersteunt. De AI-suggestie-API-key
+(/settings/api-key) staat hier wél — die hoort juist bij die lus ("Vraag
+AI-mening" heeft 'm meteen nodig), zie set_api_key() hieronder.
 
 Start met: dj-engine serve
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -18,7 +21,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from dj_engine import db as db_module
-from dj_engine.config import load_config
+from dj_engine.config import load_config, write_env_var
 from dj_engine.enrichment.llm_providers import LLMProviderError
 from dj_engine.enrichment.musicbrainz_client import MusicBrainzClient
 from dj_engine.ingest.pipeline import analyze_track
@@ -100,6 +103,22 @@ class TransitionIn(BaseModel):
 
 class TransitionOut(BaseModel):
     id: int
+
+
+class LLMSettingsOut(BaseModel):
+    provider: str
+    model: str | None = None
+    api_key_env_var: str
+    base_url: str | None = None
+    api_key_configured: bool
+
+
+class ApiKeyIn(BaseModel):
+    api_key: str
+    # Default: llm_suggest.api_key_env_var uit de config. Alleen invullen
+    # om een andere variabele te zetten dan de actief geconfigureerde
+    # provider gebruikt (bv. vooraf alvast OPENAI_API_KEY klaarzetten).
+    var_name: str | None = None
 
 
 # --- App-factory -----------------------------------------------------------
@@ -223,6 +242,29 @@ def create_app(config: dict[str, Any] | None = None) -> FastAPI:
         except LLMProviderError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return outcome
+
+    @app.get("/settings/llm", response_model=LLMSettingsOut)
+    def get_llm_settings(config: dict[str, Any] = Depends(get_config)):
+        llm_cfg = config.get("llm_suggest", {})
+        var_name = llm_cfg.get("api_key_env_var", "ANTHROPIC_API_KEY")
+        return {
+            "provider": llm_cfg.get("provider", "anthropic"),
+            "model": llm_cfg.get("model"),
+            "api_key_env_var": var_name,
+            "base_url": llm_cfg.get("base_url"),
+            # Nooit de key zelf teruggeven — alleen of er iets gezet is.
+            "api_key_configured": bool(os.environ.get(var_name)),
+        }
+
+    @app.post("/settings/api-key", status_code=204)
+    def set_api_key(body: ApiKeyIn, config: dict[str, Any] = Depends(get_config)):
+        if not body.api_key.strip():
+            raise HTTPException(status_code=400, detail="API-key mag niet leeg zijn")
+        var_name = body.var_name or config.get("llm_suggest", {}).get("api_key_env_var", "ANTHROPIC_API_KEY")
+        # set_process_env=True (default): meteen bruikbaar voor de volgende
+        # 'Vraag AI-mening'-aanroep in deze zelfde, lopende serverinstantie
+        # — geen herstart nodig, anders dan bij CLI-only .env-bestanden.
+        write_env_var(var_name, body.api_key.strip())
 
     @app.post("/transitions", response_model=TransitionOut, status_code=201)
     def log_transition(body: TransitionIn, conn: sqlite3.Connection = Depends(get_db)):
