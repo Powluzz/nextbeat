@@ -204,6 +204,78 @@ def test_cli_suggest_shows_fast_then_refresh_on_real_files(runner, config_path, 
     assert "-- Ververst" in result.output
 
 
+# --- suggest --source llm -----------------------------------------------
+
+def test_cli_suggest_source_llm_success(runner, config_path, monkeypatch):
+    from dj_engine.enrichment.llm_providers import LLMResponse
+
+    cfg = load_config(config_path)
+    conn = db.connect(cfg["database"]["path"])
+    db.insert_track(conn, {"filepath": "/a.mp3", "title": "A", "artist": "X", "bpm": 128, "camelot": "8A"})
+    cand_id = db.insert_track(conn, {"filepath": "/b.mp3", "title": "B", "artist": "Y", "bpm": 129, "camelot": "9A"})
+    conn.close()
+
+    class _FakeProvider:
+        def complete(self, prompt, config):
+            return LLMResponse(
+                text=f'[{{"track_id": {cand_id}, "reden": "Test-reden", "gegrond_op_bron": true}}]',
+                used_search=True,
+                model="claude-sonnet-5",
+            )
+
+    monkeypatch.setattr("dj_engine.recommend.llm_suggest.get_provider", lambda config: _FakeProvider())
+
+    result = _invoke(runner, config_path, ["suggest", "1", "--direction", "build", "--source", "llm"])
+
+    assert result.exit_code == 0, result.output
+    assert "AI-suggestie" in result.output
+    assert "met websearch" in result.output
+    assert "Test-reden" in result.output
+    assert "✓ bron" in result.output
+
+
+def test_cli_suggest_source_llm_provider_error_exits_nonzero(runner, config_path, monkeypatch):
+    from dj_engine.enrichment.llm_providers import LLMProviderError
+
+    cfg = load_config(config_path)
+    conn = db.connect(cfg["database"]["path"])
+    db.insert_track(conn, {"filepath": "/a.mp3", "bpm": 128, "camelot": "8A"})
+    db.insert_track(conn, {"filepath": "/b.mp3", "bpm": 129, "camelot": "9A"})  # kandidaat, anders geen providercall
+    conn.close()
+
+    class _FailingProvider:
+        def complete(self, prompt, config):
+            raise LLMProviderError("geen API-key geconfigureerd")
+
+    monkeypatch.setattr("dj_engine.recommend.llm_suggest.get_provider", lambda config: _FailingProvider())
+
+    result = _invoke(runner, config_path, ["suggest", "1", "--source", "llm"])
+
+    assert result.exit_code != 0
+    assert "geen API-key geconfigureerd" in result.output
+
+
+def test_cli_suggest_source_llm_no_results(runner, config_path, monkeypatch):
+    from dj_engine.enrichment.llm_providers import LLMResponse
+
+    cfg = load_config(config_path)
+    conn = db.connect(cfg["database"]["path"])
+    db.insert_track(conn, {"filepath": "/a.mp3", "bpm": 128, "camelot": "8A"})
+    db.insert_track(conn, {"filepath": "/b.mp3", "bpm": 129, "camelot": "9A"})
+    conn.close()
+
+    monkeypatch.setattr(
+        "dj_engine.recommend.llm_suggest.get_provider",
+        lambda config: type("P", (), {"complete": lambda self, prompt, cfg: LLMResponse("[]", False, "m")})(),
+    )
+
+    result = _invoke(runner, config_path, ["suggest", "1", "--source", "llm"])
+
+    assert result.exit_code == 0, result.output
+    assert "zonder websearch" in result.output
+    assert "Geen (bruikbare) AI-suggesties" in result.output
+
+
 # --- import-rekordbox --------------------------------------------------
 
 REKORDBOX_FIXTURE = FIXTURES / "rekordbox_sample.xml"

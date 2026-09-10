@@ -11,7 +11,7 @@ def test_load_config_missing_file_returns_defaults(tmp_path):
     assert config["database"]["path"] == "data/dj_engine.db"
     assert config["rekordbox"]["path_mapping"] == []
     assert config["analysis_pool"]["workers"] == 4
-    assert config["claude_api"]["enabled"] is False
+    assert config["llm_suggest"]["provider"] == "anthropic"
     assert config["scoring"]["energy_renormalize_threshold"] == 20
 
 

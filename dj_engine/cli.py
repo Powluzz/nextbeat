@@ -5,7 +5,7 @@ Commando's:
     dj-engine import-rekordbox <xml-pad>
     dj-engine analyze <track_id>
     dj-engine normalize-energy
-    dj-engine suggest <track_id> --direction build|hold|ease|surprise --top 10
+    dj-engine suggest <track_id> --direction build|hold|ease|surprise --top 10 [--source engine|llm]
     dj-engine search --artist "..." --genre "..." --bpm-range 120-128
     dj-engine stats
     dj-engine set-api-key <key>
@@ -21,11 +21,13 @@ import click
 
 from dj_engine import db as db_module
 from dj_engine.config import load_config, load_dotenv
+from dj_engine.enrichment.llm_providers import LLMProviderError
 from dj_engine.enrichment.musicbrainz_client import MusicBrainzClient
 from dj_engine.enrichment.rekordbox_client import parse_rekordbox_xml
 from dj_engine.ingest.pipeline import analyze_track, ingest_folder
 from dj_engine.logging_config import configure_logging
 from dj_engine.recommend.engine import suggest_next
+from dj_engine.recommend.llm_suggest import suggest_next_llm
 from dj_engine.recommend.refine import refine_candidates
 
 
@@ -115,14 +117,29 @@ def ingest(ctx: click.Context, folder: str, no_musicbrainz: bool, no_progress: b
     "--no-refine", is_flag=True,
     help="Toon alleen de snelle score (bpm/key/genre), sla de energie/mood-verfijning over.",
 )
+@click.option(
+    "--source",
+    type=click.Choice(["engine", "llm"]),
+    default="engine",
+    show_default=True,
+    help="'engine' = lokale score (bpm/key/energy/mood). 'llm' = AI-suggestie "
+         "via de geconfigureerde provider (config: llm_suggest), met dezelfde "
+         "vaste vraag ongeacht welke API je koppelt.",
+)
 @click.pass_context
-def suggest(ctx: click.Context, track_id: int, direction: str, top_n: int, no_refine: bool) -> None:
+def suggest(
+    ctx: click.Context, track_id: int, direction: str, top_n: int, no_refine: bool, source: str
+) -> None:
     """Beveel de volgende TOP tracks aan na TRACK_ID in de gekozen richting.
 
-    Toont eerst een snelle score (bpm/key/genre — altijd beschikbaar, ook
-    voor tracks die nog niet door de engine geanalyseerd zijn, bv. net uit
-    Rekordbox geïmporteerd), en ververst die daarna met echte energie/mood-
-    data voor de meest kansrijke kandidaten (zie recommend/refine.py).
+    Standaard (--source engine): toont eerst een snelle score (bpm/key/
+    genre — altijd beschikbaar, ook voor tracks die nog niet door de engine
+    geanalyseerd zijn), en ververst die daarna met echte energie/mood-data
+    voor de meest kansrijke kandidaten (zie recommend/refine.py).
+
+    Met --source llm: vraagt een AI-suggestie op basis van dezelfde lokale
+    shortlist, via de in config.yaml gekozen provider (Claude, of je eigen
+    OpenAI-compatibele API) — zie recommend/llm_suggest.py.
     """
     config = ctx.obj["config"]
     conn = _connect(config)
@@ -137,6 +154,10 @@ def suggest(ctx: click.Context, track_id: int, direction: str, top_n: int, no_re
             f"({_fmt(current.get('bpm'))} BPM, {current.get('camelot') or '?'})"
         )
         click.echo(f"Richting: {direction}")
+
+        if source == "llm":
+            _run_llm_suggest(conn, track_id, direction, config, top_n)
+            return
 
         fast_results = suggest_next(conn, track_id, direction, config, top_n=top_n)
         _print_suggestions(fast_results, "Snel (bpm/key/genre)")
@@ -158,6 +179,27 @@ def suggest(ctx: click.Context, track_id: int, direction: str, top_n: int, no_re
         _print_suggestions(refreshed_results, f"Ververst ({refined_count} tracks aangevuld)")
     finally:
         conn.close()
+
+
+def _run_llm_suggest(conn, track_id: int, direction: str, config: dict[str, Any], top_n: int) -> None:
+    try:
+        outcome = suggest_next_llm(conn, track_id, direction, config, top_n=top_n)
+    except LLMProviderError as exc:
+        click.echo(f"AI-suggestie mislukt: {exc}", err=True)
+        sys.exit(1)
+
+    search_note = "met websearch" if outcome["used_search"] else "zonder websearch (model-kennis alleen)"
+    click.echo(f"\n-- AI-suggestie ({outcome['provider']}/{outcome['model']}, {search_note}) --")
+
+    if not outcome["results"]:
+        click.echo("Geen (bruikbare) AI-suggesties ontvangen.")
+        return
+
+    for rank, item in enumerate(outcome["results"], start=1):
+        t = item["track"]
+        bron = "✓ bron" if item["gegrond_op_bron"] else "  géén bron"
+        click.echo(f"{rank:2}. {_format_track_line(t)}  [{bron}]")
+        click.echo(f"      {item['reden']}")
 
 
 @main.command()

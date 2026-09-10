@@ -34,12 +34,14 @@ Zie `BUILD_SPEC.md` voor de volledige oorspronkelijke opdracht.
       verfijning met energie/mood voor de kansrijkste kandidaten
       (`recommend/refine.py`, multiprocessing)
 - [x] Handmatige API-key-opslag (`set-api-key`, schrijft naar `.env`)
-- [ ] AI-suggestiebron via Claude API + websearch (`--source llm`) — bewust
-      nog niet gebouwd, config-infrastructuur staat al klaar (`claude_api`
-      in config.yaml)
+- [x] AI-suggestiebron (`suggest ... --source llm`), provider-onafhankelijk:
+      Claude (met websearch) of elke eigen OpenAI-compatibele API — zie
+      [AI-suggestie](#ai-suggestie-source-llm) hieronder
+- [x] Lokale config-override (`config.local.yaml`, niet in git) voor
+      machine-specifieke instellingen zoals `rekordbox.path_mapping`
 - [ ] Web-UI/FastAPI
 
-217 tests, allemaal groen (`pytest -q`).
+266 tests, allemaal groen (`pytest -q`).
 
 ## Installatie
 
@@ -145,11 +147,54 @@ De `energy`-kolom wordt niet na elke losse `analyze` herschaald, maar pas
 na een configureerbare drempel (`scoring.energy_renormalize_threshold`,
 default 20) — of forceer het direct met `dj-engine normalize-energy`.
 
-### API-key voor de (nog niet gebouwde) AI-suggestiebron
+## AI-suggestie (`--source llm`)
+
+Naast de lokale, deterministische engine kun je optioneel een LLM om een
+tweede mening vragen — bv. omdat het via websearch kan checken of een
+kandidaat daadwerkelijk in bestaande DJ-tracklists na de huidige track
+voorkomt, iets wat de lokale audio-analyse niet kan weten.
+
+**Niet vastgezet op Claude.** Je kiest zelf de provider in `config.yaml`
+(of `config.local.yaml`) via `llm_suggest.provider`:
+
+| Provider | Websearch | Vereist |
+|---|---|---|
+| `anthropic` (default) | ✅ ingebouwd, server-side | `pip install anthropic` (extra: `llm`) |
+| `openai_compatible` | ❌ (model-kennis alleen) | alleen `llm_suggest.base_url` — werkt met OpenAI zelf, Groq, Mistral, een lokale Ollama-server, enzovoort |
+
+**Ongeacht de provider krijgt het model exact dezelfde vraag** (vaste
+prompt + verplicht JSON-antwoordformaat, zie
+`recommend/llm_suggest.py::build_prompt`) — dat maakt het resultaat zo
+voorspelbaar mogelijk, en niet afhankelijk van eigenaardigheden van één
+specifieke API. Het model mag bovendien nooit een track noemen die niet in
+de lokale shortlist staat — elk antwoord wordt tegen die gesloten lijst
+gevalideerd (`parse_llm_response`), en niet-bestaande track-id's worden
+altijd stilzwijgend verwijderd, nooit vertrouwd.
 
 ```bash
-dj-engine set-api-key sk-ant-...   # schrijft naar .env, staat in .gitignore
+# API-key handmatig instellen (schrijft naar .env, genegeerd door git)
+dj-engine set-api-key sk-ant-...
+# voor een andere provider/variabele:
+dj-engine set-api-key sk-... --var-name OPENAI_API_KEY
+
+# gebruik
+dj-engine suggest 42 --direction surprise --source llm
 ```
+
+Voorbeeld `config.local.yaml` voor een eigen OpenAI-compatibele API:
+
+```yaml
+llm_suggest:
+  provider: "openai_compatible"
+  model: "gpt-4o-mini"
+  base_url: "https://api.openai.com/v1"
+  api_key_env_var: "OPENAI_API_KEY"
+```
+
+De output toont altijd expliciet of websearch daadwerkelijk gebruikt is
+(`met websearch` / `zonder websearch (model-kennis alleen)`) en per
+suggestie of de onderbouwing op een gevonden bron steunt (`✓ bron`) —
+zodat jij weet hoeveel vertrouwen je aan welk antwoord geeft.
 
 ## Testen
 
@@ -164,6 +209,16 @@ meegeleverd. MusicBrainz-netwerkcalls zijn in alle tests gemockt.
 
 ## Ontwerpkeuzes die niet 1-op-1 in BUILD_SPEC.md staan
 
+- **AI-suggestie is provider-onafhankelijk, niet Claude-only** (op
+  expliciet verzoek): `enrichment/llm_providers/` is een kleine
+  adapter-laag (`base.py` definieert het contract, elke provider
+  implementeert alleen `complete(prompt) -> tekst`). Het prompt/antwoord-
+  'algoritme' zelf (`recommend/llm_suggest.py`) is providerloos en dus
+  voor élke adapter identiek. Nieuwe providers toevoegen = één klasse
+  erbij in `llm_providers/` + een regel in de factory (`__init__.py`).
+- **`openai_compatible`-provider gebruikt bewust alleen `urllib`** (geen
+  `openai`-SDK-dependency) — dat past bij het doel ("koppel je eigen API")
+  beter dan een SDK die zelf weer aannames doet over welke provider het is.
 - **`energy`-kolom**: BUILD_SPEC.md noemt geen specifiek Essentia-algoritme
   hiervoor. Gekozen aanpak (in overleg): een ruwe, ongenormaliseerde
   `energy_raw`-feature (RMS + hoogfrequent-energieratio via

@@ -54,12 +54,31 @@ _DEFAULTS: dict[str, Any] = {
         # t.o.v. het aantal beschikbare cores.
         "workers": 4,
     },
-    "claude_api": {
-        # Infrastructuur voor een optionele, nog niet gebouwde AI-suggestie-
-        # bron (--source llm). Nu alleen configuratie; geen functionaliteit.
-        "enabled": False,
+    "llm_suggest": {
+        # Optionele AI-suggestiebron (dj-engine suggest ... --source llm).
+        # 'provider' bepaalt welke API-adapter gebruikt wordt — niet
+        # vastgezet op Claude: "anthropic" of "openai_compatible" (elke
+        # OpenAI-chat-completions-compatibele API: OpenAI zelf, Groq,
+        # Mistral, een lokale Ollama-server, ...). Zie enrichment/llm_providers/.
+        # Ongeacht provider krijgt het model exact hetzelfde prompt/
+        # antwoord-contract (recommend/llm_suggest.py::build_prompt) —
+        # dat is wat het resultaat voorspelbaar houdt.
+        "provider": "anthropic",
         "model": "claude-sonnet-5",
         "api_key_env_var": "ANTHROPIC_API_KEY",
+        # Alleen voor provider "openai_compatible" (verplicht dan):
+        "base_url": None,
+        # Alleen gehonoreerd door providers die het ondersteunen (nu:
+        # alleen anthropic) — bij openai_compatible wordt dit genegeerd,
+        # dat pad antwoordt altijd puur op getraind model-geheugen.
+        "web_search": True,
+        "max_search_uses": 5,
+        "max_output_tokens": 4096,
+        "timeout_seconds": 60,
+        # Aantal lokale kandidaten (uit de gewone engine-score) dat als
+        # gesloten kandidatenlijst aan het model wordt voorgelegd — het
+        # model mag nooit een track daarbuiten noemen.
+        "shortlist_size": 30,
     },
     "scoring": {
         "bpm_max_deviation_pct": 8.0,
