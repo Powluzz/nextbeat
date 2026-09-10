@@ -35,11 +35,49 @@ models:
   genre_model: "genre_discogs400-discogs-effnet-1.pb"
   genre_labels: "genre_discogs400-discogs-effnet-1.json"
 
+rekordbox:
+  # Prefix-herschrijfregels voor Rekordbox' opgeslagen paden (vaak Windows,
+  # bv. "C:/Users/naam/Music") naar een pad dat op dit systeem bestaat.
+  # Voorbeeld:
+  #   path_mapping:
+  #     - from: "C:/Users/paulm/Music/DJ Muziek"
+  #       to: "/mnt/music/dj"
+  # Leeg = paden ongewijzigd laten. `import-rekordbox` werkt dan alleen op
+  # metadata-niveau (bpm/key/genre) totdat dit ingevuld is — `analyze`/
+  # `refine` geven een duidelijke 'bestand niet gevonden'-fout.
+  path_mapping: []
+
+suggest:
+  # Aantal kandidaten dat suggest_next() intern doorgeeft aan de
+  # achtergrond-verfijningsstap (recommend/refine.py) bij `dj-engine suggest`.
+  shortlist_size: 40
+
+analysis_pool:
+  # Aantal parallelle workerprocessen voor recommend/refine.py. Elke
+  # TF-inference gebruikt intern ~2 cores (gemeten) — hou hier rekening mee
+  # t.o.v. het aantal beschikbare cores van deze machine.
+  workers: 4
+
+claude_api:
+  # Infrastructuur voor een optionele, nog NIET gebouwde AI-suggestiebron
+  # (--source llm, via websearch). Nu alleen configuratie, geen functionaliteit.
+  enabled: false
+  model: "claude-sonnet-5"
+  # Naam van de environment-variabele met de API-key (nooit de key zelf
+  # hier in config.yaml — dat bestand staat in git). Zet 'm handmatig via
+  # `dj-engine set-api-key <key>` (schrijft naar .env, dat wél genegeerd
+  # wordt door git) of je eigen shell-environment.
+  api_key_env_var: "ANTHROPIC_API_KEY"
+
 scoring:
   # Maximale BPM-afwijking (percentage) die nog een score > 0 oplevert.
   bpm_max_deviation_pct: 8.0
   # Aantal recent gebruikte tracks dat standaard wordt uitgesloten van suggesties.
   default_exclude_recent: 5
+  # Drempel voor db.maybe_normalize_energy(): pas de energy-kolom pas
+  # herschalen na dit aantal 'pending' tracks (energy_raw net gezet, energy
+  # nog niet bijgewerkt), i.p.v. bij elke losse on-demand analyse.
+  energy_renormalize_threshold: 20
   # Camelot-compatibiliteitsscores (0-100), zie analysis/camelot.py
   camelot_scores:
     same: 100

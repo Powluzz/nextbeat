@@ -6,6 +6,7 @@ scoringsgewichten) horen in config.yaml, niet hardcoded in de modules.
 from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
 from typing import Any
 
@@ -35,9 +36,38 @@ _DEFAULTS: dict[str, Any] = {
         "genre_model": "genre_discogs400-discogs-effnet-1.pb",
         "genre_labels": "genre_discogs400-discogs-effnet-1.json",
     },
+    "rekordbox": {
+        # Prefix-herschrijfregels voor Rekordbox' opgeslagen paden (vaak
+        # Windows, bv. "C:/Users/naam/Music") naar een pad dat op dit
+        # systeem daadwerkelijk bestaat. Leeg = paden ongewijzigd laten
+        # (import werkt dan alleen op metadata-niveau totdat dit ingevuld is).
+        "path_mapping": [],
+    },
+    "suggest": {
+        # Aantal kandidaten dat suggest_next() intern doorgeeft aan de
+        # achtergrond-verfijningsstap (refine.refine_candidates()).
+        "shortlist_size": 40,
+    },
+    "analysis_pool": {
+        # Aantal parallelle workerprocessen voor refine.refine_candidates().
+        # Elke TF-inference gebruikt intern ~2 cores; hou hier rekening mee
+        # t.o.v. het aantal beschikbare cores.
+        "workers": 4,
+    },
+    "claude_api": {
+        # Infrastructuur voor een optionele, nog niet gebouwde AI-suggestie-
+        # bron (--source llm). Nu alleen configuratie; geen functionaliteit.
+        "enabled": False,
+        "model": "claude-sonnet-5",
+        "api_key_env_var": "ANTHROPIC_API_KEY",
+    },
     "scoring": {
         "bpm_max_deviation_pct": 8.0,
         "default_exclude_recent": 5,
+        # Drempel voor db.maybe_normalize_energy(): pas herschalen na dit
+        # aantal 'pending' tracks (energy_raw gezet, energy nog niet), i.p.v.
+        # bij elke losse on-demand analyse.
+        "energy_renormalize_threshold": 20,
         "camelot_scores": {
             "same": 100,
             "adjacent_same_letter": 90,
@@ -90,3 +120,29 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
         user_config = yaml.safe_load(f) or {}
 
     return _deep_merge(_DEFAULTS, user_config)
+
+
+def load_dotenv(path: str | Path = ".env") -> None:
+    """Laad KEY=VALUE-regels uit een .env-bestand in os.environ.
+
+    Bestaande environment-variabelen hebben altijd voorrang (worden niet
+    overschreven) — zo blijft een expliciet in de shell gezette variabele
+    leidend. Geen dependency op python-dotenv nodig voor dit ene doel:
+    secrets (zoals ANTHROPIC_API_KEY) handmatig kunnen toevoegen zonder ze
+    in config.yaml (wél in git) te zetten. Zie ook cli.py's `set-api-key`.
+
+    Stilzwijgend een no-op als het bestand niet bestaat.
+    """
+    env_path = Path(path)
+    if not env_path.exists():
+        return
+
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)

@@ -43,6 +43,7 @@ def config_path(tmp_path):
                 "database": {"path": str(tmp_path / "dj.db")},
                 "models": {"directory": str(tmp_path / "no_models")},
                 "logging": {"file": str(tmp_path / "dj.log")},
+                "analysis_pool": {"workers": 2},
             }
         )
     )
@@ -160,3 +161,163 @@ def test_cli_suggest_shows_score_breakdown(runner, config_path):
     assert result.exit_code == 0, result.output
     assert "key=" in result.output and "bpm=" in result.output
     assert "energy=" in result.output and "mood=" in result.output
+
+
+def test_cli_suggest_no_refine_skips_refinement(runner, config_path):
+    cfg = load_config(config_path)
+    conn = db.connect(cfg["database"]["path"])
+    db.insert_track(conn, {"filepath": "/a.mp3", "bpm": 128, "camelot": "8A"})
+    db.insert_track(conn, {"filepath": "/b.mp3", "bpm": 129, "camelot": "9A"})
+    conn.close()
+
+    result = _invoke(runner, config_path, ["suggest", "1", "--no-refine"])
+
+    assert result.exit_code == 0, result.output
+    assert "Snel" in result.output
+    assert "Verfijnen" not in result.output
+    assert "Ververst" not in result.output
+
+
+def test_cli_suggest_shows_fast_then_refresh_on_real_files(runner, config_path, tmp_path):
+    """Kernvereiste: eerst de snelle score tonen, dan verfijnen met echte
+    energie/mood-data (zie ingest_rekordbox-workflow)."""
+    music_dir = tmp_path / "refine_music"
+    music_dir.mkdir()
+    f1 = music_dir / "current.wav"
+    f2 = music_dir / "candidate.wav"
+    shutil.copy(FIXTURES / "click_128bpm.wav", f1)
+    shutil.copy(FIXTURES / "tone_c_major.wav", f2)
+
+    cfg = load_config(config_path)
+    conn = db.connect(cfg["database"]["path"])
+    # Simuleert Rekordbox-import: bpm/camelot bekend, energy/mood nog niet.
+    db.insert_track(conn, {"filepath": str(f1), "bpm": 128.0, "camelot": "8A"})
+    db.insert_track(conn, {"filepath": str(f2), "bpm": 120.0, "camelot": "8B"})
+    conn.close()
+
+    result = _invoke(runner, config_path, ["suggest", "1", "--direction", "hold"])
+
+    assert result.exit_code == 0, result.output
+    assert "-- Snel (bpm/key/genre) --" in result.output
+    assert "Verfijnen met energie/mood-analyse" in result.output
+    assert "aangevuld" in result.output
+    assert "-- Ververst" in result.output
+
+
+# --- import-rekordbox --------------------------------------------------
+
+REKORDBOX_FIXTURE = FIXTURES / "rekordbox_sample.xml"
+
+
+def test_cli_import_rekordbox_reports_counts(runner, config_path):
+    result = _invoke(runner, config_path, ["import-rekordbox", str(REKORDBOX_FIXTURE)])
+
+    assert result.exit_code == 0, result.output
+    assert "6 tracks verwerkt" in result.output
+    assert "1 streaming-tracks" in result.output
+    assert "path_mapping" in result.output  # waarschuwing: nog niet ingevuld
+
+
+def test_cli_import_rekordbox_is_idempotent(runner, config_path):
+    _invoke(runner, config_path, ["import-rekordbox", str(REKORDBOX_FIXTURE)])
+    cfg = load_config(config_path)
+    conn = db.connect(cfg["database"]["path"])
+    count_before = len(db.get_all_tracks(conn))
+    conn.close()
+
+    _invoke(runner, config_path, ["import-rekordbox", str(REKORDBOX_FIXTURE)])
+    conn = db.connect(cfg["database"]["path"])
+    count_after = len(db.get_all_tracks(conn))
+    conn.close()
+
+    assert count_before == count_after == 6
+
+
+def test_cli_import_rekordbox_fills_bpm_key_camelot(runner, config_path):
+    _invoke(runner, config_path, ["import-rekordbox", str(REKORDBOX_FIXTURE)])
+    cfg = load_config(config_path)
+    conn = db.connect(cfg["database"]["path"])
+    track = db.search_tracks(conn, artist="Robin Thicke")[0]
+    conn.close()
+
+    assert track["bpm"] == 120.0
+    assert track["camelot"] == "10B"
+    assert track["energy"] is None  # nog niet door de engine
+
+
+def test_cli_import_rekordbox_missing_file_errors(runner, config_path):
+    result = _invoke(runner, config_path, ["import-rekordbox", "/does/not/exist.xml"])
+    assert result.exit_code != 0
+
+
+# --- analyze --------------------------------------------------------
+
+def test_cli_analyze_fills_energy_preserves_bpm(runner, config_path, tmp_path):
+    f = tmp_path / "track.wav"
+    shutil.copy(FIXTURES / "click_128bpm.wav", f)
+    cfg = load_config(config_path)
+    conn = db.connect(cfg["database"]["path"])
+    track_id = db.insert_track(conn, {"filepath": str(f), "bpm": 126.5, "camelot": "9A"})
+    conn.close()
+
+    result = _invoke(runner, config_path, ["analyze", str(track_id), "--no-musicbrainz"])
+
+    assert result.exit_code == 0, result.output
+    assert "geanalyseerd" in result.output
+    conn = db.connect(cfg["database"]["path"])
+    track = db.get_track(conn, track_id)
+    conn.close()
+    assert track["bpm"] == 126.5  # onaangeroerd
+    assert track["energy_raw"] is not None
+
+
+def test_cli_analyze_unknown_id_errors(runner, config_path):
+    result = _invoke(runner, config_path, ["analyze", "999", "--no-musicbrainz"])
+    assert result.exit_code != 0
+    assert "Fout" in result.output
+
+
+# --- normalize-energy --------------------------------------------------
+
+def test_cli_normalize_energy(runner, config_path):
+    cfg = load_config(config_path)
+    conn = db.connect(cfg["database"]["path"])
+    db.insert_track(conn, {"filepath": "/a.mp3", "energy_raw": 0.0})
+    db.insert_track(conn, {"filepath": "/b.mp3", "energy_raw": 1.0})
+    conn.close()
+
+    result = _invoke(runner, config_path, ["normalize-energy"])
+
+    assert result.exit_code == 0, result.output
+    assert "2 tracks genormaliseerd" in result.output
+
+
+# --- set-api-key --------------------------------------------------------
+
+def test_cli_set_api_key_writes_env_file(runner, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(main, ["set-api-key", "sk-ant-test123"])
+
+    assert result.exit_code == 0, result.output
+    env_content = (tmp_path / ".env").read_text()
+    assert "ANTHROPIC_API_KEY=sk-ant-test123" in env_content
+
+
+def test_cli_set_api_key_replaces_existing_value(runner, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=old-value\nOTHER_VAR=keep-me\n")
+
+    runner.invoke(main, ["set-api-key", "new-value"])
+
+    env_content = (tmp_path / ".env").read_text()
+    assert "ANTHROPIC_API_KEY=new-value" in env_content
+    assert "old-value" not in env_content
+    assert "OTHER_VAR=keep-me" in env_content
+
+
+def test_cli_set_api_key_custom_var_name(runner, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(main, ["set-api-key", "abc", "--var-name", "MY_KEY"])
+
+    assert result.exit_code == 0
+    assert "MY_KEY=abc" in (tmp_path / ".env").read_text()

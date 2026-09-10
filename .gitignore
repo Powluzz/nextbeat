@@ -18,6 +18,10 @@ logs/
 # Eigen/auteursrechtelijk beschermde testmuziek — nooit committen
 samples/
 
+# Persoonlijke Rekordbox-bibliotheeksexport (paden, luistergeschiedenis) — nooit committen
+bibliotheek.xml
+*.rekordbox.xml
+
 # Claude Code harness-interne state
 .claude/
 

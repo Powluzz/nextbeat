@@ -115,11 +115,18 @@ def insert_track(conn: sqlite3.Connection, track: dict[str, Any]) -> int:
     return cursor.lastrowid
 
 
-def upsert_track(conn: sqlite3.Connection, track: dict[str, Any]) -> int:
+def upsert_track(conn: sqlite3.Connection, track: dict[str, Any], commit: bool = True) -> int:
     """Voeg een track toe, of update de bestaande rij op basis van filepath.
 
     Idempotent: opnieuw ingesten van dezelfde filepath overschrijft de
     bestaande analyse in plaats van te dupliceren.
+
+    Args:
+        commit: standaard True (elke aanroep is meteen persistent). Zet op
+            False bij een bulk-import (bv. Rekordbox, duizenden tracks) om
+            niet na élke losse rij te commiten — de caller moet dan zelf
+            één keer conn.commit() aanroepen na de hele batch. Zonder dat
+            blijven de wijzigingen alleen zichtbaar binnen deze connectie.
     """
     if "filepath" not in track:
         raise ValueError("track dict moet 'filepath' bevatten")
@@ -138,7 +145,8 @@ def upsert_track(conn: sqlite3.Connection, track: dict[str, Any]) -> int:
         """,
         values,
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
     if cursor.lastrowid and cursor.rowcount == 1:
         existing = conn.execute(
@@ -300,6 +308,25 @@ def normalize_energy(conn: sqlite3.Connection) -> int:
         )
     conn.commit()
     return cursor.rowcount
+
+
+def maybe_normalize_energy(conn: sqlite3.Connection, config: dict[str, Any]) -> bool:
+    """Herbereken de `energy`-kolom alleen als er genoeg 'pending' tracks
+    zijn opgehoopt (energy_raw net gezet, energy nog niet bijgewerkt),
+    i.p.v. bij elke losse on-demand analyse (zie ingest/pipeline.py::
+    analyze_track) meteen de hele tabel te herschalen.
+
+    Drempel via config['scoring']['energy_renormalize_threshold']
+    (default 20). Retourneert True als er daadwerkelijk genormaliseerd is.
+    """
+    threshold = config.get("scoring", {}).get("energy_renormalize_threshold", 20)
+    pending = conn.execute(
+        "SELECT COUNT(*) AS n FROM tracks WHERE energy_raw IS NOT NULL AND energy IS NULL"
+    ).fetchone()["n"]
+    if pending >= threshold:
+        normalize_energy(conn)
+        return True
+    return False
 
 
 # --- MusicBrainz cache -------------------------------------------------

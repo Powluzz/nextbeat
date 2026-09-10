@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<DJ_PLAYLISTS Version="1.0.0">
+  <PRODUCT Name="rekordbox" Version="6.8.6" Company="AlphaTheta"/>
+  <COLLECTION Entries="6">
+    <TRACK TrackID="171579258" Name="Blurred lines" Artist="Robin Thicke ft. T.I. &amp; Pharrell"
+           Composer="" Album="Top 40" Grouping="" Genre="Top 40" Kind="MP3-bestand"
+           Size="12939784" TotalTime="262" DiscNumber="0" TrackNumber="0" Year="2013"
+           AverageBpm="120.00" DateAdded="2015-11-28" BitRate="320" SampleRate="44100"
+           Comments="" PlayCount="6" Rating="0"
+           Location="file://localhost/C:/Users/paulm/Music/DJ%20Muziek/Robin%20Thicke-Blurred%20lines.mp3"
+           Remixer="" Tonality="D" Label="" Mix="">
+      <TEMPO Inizio="0.251" Bpm="120.00" Metro="4/4" Battito="1"/>
+    </TRACK>
+    <TRACK TrackID="246103807" Name="Some minor track" Artist="Test Artist"
+           Composer="" Album="" Grouping="" Genre="House" Kind="MP3-bestand"
+           Size="1000" TotalTime="200" DiscNumber="0" TrackNumber="0" Year="2020"
+           AverageBpm="126.50" DateAdded="2020-01-01" BitRate="320" SampleRate="44100"
+           Comments="" PlayCount="0" Rating="0"
+           Location="file://localhost/C:/Users/paulm/Music/DJ%20Muziek/Test%20Artist-Some%20minor%20track.mp3"
+           Remixer="" Tonality="F#m" Label="" Mix=""/>
+    <TRACK TrackID="300000001" Name="No key data" Artist="Unknown Key Artist"
+           Composer="" Album="" Grouping="" Genre="" Kind="MP3-bestand"
+           Size="1000" TotalTime="180" DiscNumber="0" TrackNumber="0" Year="2019"
+           AverageBpm="128.00" DateAdded="2019-01-01" BitRate="320" SampleRate="44100"
+           Comments="" PlayCount="0" Rating="0"
+           Location="file://localhost/C:/Users/paulm/Music/DJ%20Muziek/no-key.mp3"
+           Remixer="" Tonality="" Label="" Mix=""/>
+    <TRACK TrackID="400000002" Name="Corrupt tonality" Artist="Weird Tag Artist"
+           Composer="" Album="" Grouping="" Genre="" Kind="MP3-bestand"
+           Size="1000" TotalTime="180" DiscNumber="0" TrackNumber="0" Year="2019"
+           AverageBpm="130.00" DateAdded="2019-01-01" BitRate="320" SampleRate="44100"
+           Comments="" PlayCount="0" Rating="0"
+           Location="file://localhost/C:/Users/paulm/Music/DJ%20Muziek/corrupt-tag.mp3"
+           Remixer="" Tonality="Some Company Name +31612345678 Ltd." Label="" Mix=""/>
+    <TRACK TrackID="453498254" Name="Streaming track" Artist="Tidal Artist"
+           Composer="" Album="" Grouping="" Genre="Dance" Kind="Onbekend formaat"
+           Size="0" TotalTime="200" DiscNumber="0" TrackNumber="0" Year="2023"
+           AverageBpm="124.00" DateAdded="2023-01-01" BitRate="0" SampleRate="0"
+           Comments="" PlayCount="0" Rating="0"
+           Location="file://localhost/tidal:tracks:453498254"
+           Remixer="" Tonality="Am" Label="" Mix=""/>
+    <TRACK TrackID="500000003" Name="No BPM" Artist="No Bpm Artist"
+           Composer="" Album="" Grouping="" Genre="" Kind="MP3-bestand"
+           Size="1000" TotalTime="180" DiscNumber="0" TrackNumber="0" Year="2019"
+           AverageBpm="" DateAdded="2019-01-01" BitRate="320" SampleRate="44100"
+           Comments="" PlayCount="0" Rating="0"
+           Location="file://localhost/C:/Users/paulm/Music/DJ%20Muziek/no-bpm.mp3"
+           Remixer="" Tonality="C" Label="" Mix=""/>
+  </COLLECTION>
+  <PLAYLISTS>
+    <NODE Type="0" Name="ROOT" Count="1">
+      <NODE Name="Top 40" Type="1" KeyType="0" Entries="1">
+        <TRACK Key="171579258"/>
+      </NODE>
+    </NODE>
+  </PLAYLISTS>
+</DJ_PLAYLISTS>

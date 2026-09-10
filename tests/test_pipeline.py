@@ -13,7 +13,13 @@ import pytest
 from dj_engine import db
 from dj_engine.config import load_config
 from dj_engine.enrichment.musicbrainz_client import MusicBrainzClient
-from dj_engine.ingest.pipeline import find_audio_files, ingest_file, ingest_folder, read_tags
+from dj_engine.ingest.pipeline import (
+    analyze_track,
+    find_audio_files,
+    ingest_file,
+    ingest_folder,
+    read_tags,
+)
 
 pytest.importorskip("essentia", reason="essentia is een optionele dependency")
 
@@ -184,3 +190,73 @@ def test_ingest_folder_one_corrupt_file_does_not_stop_batch(tmp_path, conn, conf
 
     assert stats["failed"] == 2
     assert stats["ingested"] == 1
+
+
+# --- analyze_track (on-demand single-track, Rekordbox-flow) ----------------
+
+def test_analyze_track_preserves_existing_bpm_and_camelot(tmp_path, conn, config):
+    """Kernregel: bpm/key/camelot die al gezet zijn (bv. uit Rekordbox)
+    mogen nooit overschreven worden door Essentia's eigen detectie."""
+    filepath = tmp_path / "track.wav"
+    shutil.copy(FIXTURES / "click_128bpm.wav", filepath)
+    track_id = db.insert_track(conn, {
+        "filepath": str(filepath), "bpm": 126.5, "camelot": "9A", "key": "A", "scale": "minor",
+    })
+
+    updated = analyze_track(track_id, conn, config, mb_client=None)
+
+    assert updated["bpm"] == 126.5  # ongewijzigd, ook al detecteert Essentia ~128
+    assert updated["camelot"] == "9A"
+    assert updated["energy_raw"] is not None  # wel nieuw ingevuld
+    assert updated["loudness"] is not None
+
+
+def test_analyze_track_fills_missing_bpm_and_camelot(tmp_path, conn, config):
+    filepath = tmp_path / "track.wav"
+    shutil.copy(FIXTURES / "tone_c_major.wav", filepath)
+    track_id = db.insert_track(conn, {"filepath": str(filepath)})
+
+    updated = analyze_track(track_id, conn, config, mb_client=None)
+
+    assert updated["bpm"] is not None
+    assert updated["camelot"] == "8B"  # C majeur, zie test_essentia_extractor.py
+
+
+def test_analyze_track_unknown_id_raises(conn, config):
+    with pytest.raises(ValueError):
+        analyze_track(999, conn, config, mb_client=None)
+
+
+def test_analyze_track_streaming_scheme_returns_unchanged(conn, config):
+    track_id = db.insert_track(conn, {
+        "filepath": "tidal://tracks/12345", "bpm": 124.0, "title": "Streaming Track",
+    })
+
+    updated = analyze_track(track_id, conn, config, mb_client=None)
+
+    assert updated["bpm"] == 124.0
+    assert updated["energy_raw"] is None  # geen lokaal bestand -> niets geanalyseerd
+
+
+def test_analyze_track_analysis_failure_returns_existing_unchanged(tmp_path, conn, config):
+    filepath = tmp_path / "broken.wav"
+    shutil.copy(FIXTURES / "corrupt.wav", filepath)
+    track_id = db.insert_track(conn, {"filepath": str(filepath), "bpm": 128.0})
+
+    updated = analyze_track(track_id, conn, config, mb_client=None)
+
+    assert updated["bpm"] == 128.0
+    assert updated["energy_raw"] is None
+
+
+def test_analyze_track_triggers_periodic_normalize(tmp_path, conn, config):
+    config = dict(config)
+    config["scoring"] = {**config["scoring"], "energy_renormalize_threshold": 1}
+
+    filepath = tmp_path / "track.wav"
+    shutil.copy(FIXTURES / "click_128bpm.wav", filepath)
+    track_id = db.insert_track(conn, {"filepath": str(filepath)})
+
+    updated = analyze_track(track_id, conn, config, mb_client=None)
+
+    assert updated["energy"] is not None  # drempel=1 -> meteen genormaliseerd

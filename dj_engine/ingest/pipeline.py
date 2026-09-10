@@ -19,6 +19,7 @@ from dj_engine import db as db_module
 from dj_engine.analysis.essentia_extractor import analyze_audio
 from dj_engine.analysis.mood_genre_models import classify_mood_genre
 from dj_engine.enrichment.musicbrainz_client import MusicBrainzClient
+from dj_engine.enrichment.rekordbox_client import STREAMING_SCHEMES
 
 logger = logging.getLogger(__name__)
 
@@ -165,3 +166,88 @@ def ingest_folder(
         stats["scanned"], stats["ingested"], stats["skipped_existing"], stats["failed"],
     )
     return stats
+
+
+def analyze_track(
+    track_id: int,
+    conn,
+    config: dict[str, Any],
+    mb_client: MusicBrainzClient | None = None,
+) -> dict[str, Any]:
+    """Analyseer (of hernieuw) precies 1 al-bekende track — het "gooi deze
+    track door de engine"-pad voor tracks die via Rekordbox-import of een
+    eerdere ingest al in de database staan.
+
+    Belangrijk verschil met ingest_file(): `bpm`/`key`/`scale`/`camelot`
+    worden NOOIT overschreven als ze al een waarde hebben (bv. uit
+    Rekordbox's eigen analyse) — alleen aangevuld als ze nog NULL zijn.
+    `loudness`/`danceability`/`energy_raw`/`mood_*` komen alleen uit onze
+    eigen analyse en worden altijd bijgewerkt.
+
+    Streaming-tracks (Tidal e.d., geen lokaal bestand) worden herkend en
+    ongewijzigd teruggegeven — geen foutmelding, dit is een permanente,
+    verwachte toestand, geen mislukking.
+
+    Args:
+        track_id: bestaand track-id (zie db.get_track()).
+        conn: open sqlite3-connectie.
+        config: app-config.
+        mb_client: optionele MusicBrainzClient — alleen gebruikt als de
+            track nog geen mbid heeft.
+
+    Returns:
+        De bijgewerkte track-rij (dict, zie db.get_track()).
+
+    Raises:
+        ValueError: als track_id niet bestaat.
+    """
+    existing = db_module.get_track(conn, track_id)
+    if existing is None:
+        raise ValueError(f"Track met id {track_id} bestaat niet")
+
+    filepath = existing["filepath"]
+    if filepath.startswith(STREAMING_SCHEMES):
+        logger.info(
+            "Track %d (%s) is een streaming-track — geen lokaal bestand, analyse overgeslagen",
+            track_id, filepath,
+        )
+        return existing
+
+    analysis = analyze_audio(filepath, sample_rate=config["audio"]["sample_rate"])
+    if analysis["error"] is not None:
+        logger.warning("Analyse mislukt voor track %d (%s): %s", track_id, filepath, analysis["error"])
+        return existing
+
+    mood_genre = classify_mood_genre(filepath, config)
+
+    update: dict[str, Any] = {"filepath": filepath}
+    update["loudness"] = analysis["loudness"]
+    update["danceability"] = analysis["danceability"]
+    update["energy_raw"] = analysis["energy_raw"]
+    update["mood_happy"] = mood_genre["mood_happy"]
+    update["mood_sad"] = mood_genre["mood_sad"]
+    update["mood_aggressive"] = mood_genre["mood_aggressive"]
+    update["mood_relaxed"] = mood_genre["mood_relaxed"]
+    update["mood_party"] = mood_genre["mood_party"]
+
+    # bpm/key/scale/camelot: alleen invullen als nog leeg (Rekordbox- of
+    # eerder bepaalde waarden blijven leidend, nooit overschrijven).
+    if existing.get("bpm") is None:
+        update["bpm"] = analysis["bpm"]
+    if existing.get("camelot") is None:
+        update["key"] = analysis["key"]
+        update["scale"] = analysis["scale"]
+        update["camelot"] = analysis["camelot"]
+    if existing.get("genre") is None:
+        update["genre"] = mood_genre["genre"]
+
+    if mb_client is not None and existing.get("mbid") is None:
+        mbid, mb_genre_tags = mb_client.lookup_track(existing.get("title"), existing.get("artist"))
+        if mbid:
+            update["mbid"] = mbid
+        if update.get("genre") is None and mb_genre_tags:
+            update["genre"] = mb_genre_tags
+
+    db_module.upsert_track(conn, update)
+    db_module.maybe_normalize_energy(conn, config)
+    return db_module.get_track(conn, track_id)

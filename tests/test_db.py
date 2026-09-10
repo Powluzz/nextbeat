@@ -201,6 +201,53 @@ def test_normalize_energy_empty_db_returns_zero(conn):
     assert db.normalize_energy(conn) == 0
 
 
+def test_upsert_track_commit_false_defers_persistence(tmp_path):
+    """commit=False mag de rij pas persistent maken na een expliciete
+    conn.commit() door de caller (bulk-import-patroon)."""
+    db_path = tmp_path / "test.db"
+    conn = db.connect(db_path)
+    db.upsert_track(conn, _sample_track(filepath="/bulk.mp3"), commit=False)
+
+    # Zelfde connectie ziet de rij al (nog binnen dezelfde transactie)
+    assert db.track_exists(conn, "/bulk.mp3") is True
+
+    # Een andere connectie op hetzelfde bestand ziet 'm nog niet
+    other_conn = db.connect(db_path)
+    assert db.track_exists(other_conn, "/bulk.mp3") is False
+
+    conn.commit()
+    assert db.track_exists(other_conn, "/bulk.mp3") is True
+
+    conn.close()
+    other_conn.close()
+
+
+def test_maybe_normalize_energy_below_threshold_does_nothing(conn):
+    config = {"scoring": {"energy_renormalize_threshold": 5}}
+    for i in range(3):
+        db.insert_track(conn, _sample_track(filepath=f"/{i}.mp3", energy=None, energy_raw=0.5))
+
+    triggered = db.maybe_normalize_energy(conn, config)
+    assert triggered is False
+    assert all(t["energy"] is None for t in db.get_all_tracks(conn))
+
+
+def test_maybe_normalize_energy_at_threshold_normalizes(conn):
+    config = {"scoring": {"energy_renormalize_threshold": 3}}
+    for i in range(3):
+        db.insert_track(conn, _sample_track(filepath=f"/{i}.mp3", energy=None, energy_raw=float(i)))
+
+    triggered = db.maybe_normalize_energy(conn, config)
+    assert triggered is True
+    assert all(t["energy"] is not None for t in db.get_all_tracks(conn))
+
+
+def test_maybe_normalize_energy_default_threshold(conn):
+    # Geen 'scoring' key in config -> valt terug op default (20), 1 pending track is niet genoeg
+    db.insert_track(conn, _sample_track(filepath="/a.mp3", energy=None, energy_raw=0.5))
+    assert db.maybe_normalize_energy(conn, {}) is False
+
+
 def test_connect_creates_parent_dir(tmp_path):
     db_path = tmp_path / "nested" / "dir" / "dj.db"
     connection = db.connect(db_path)

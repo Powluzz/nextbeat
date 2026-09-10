@@ -11,21 +11,35 @@ afslag).
 
 Zie `BUILD_SPEC.md` voor de volledige oorspronkelijke opdracht.
 
-## Status: Fase 1 (MVP) — compleet
+## Status
 
-- [x] Projectstructuur
-- [x] Database schema + CRUD + tests
-- [x] Camelot-mapping + tests
-- [x] Essentia-extractor (BPM/key/loudness/danceability/energy) + tests
-- [x] Mood/genre-classificatie (lazy-loaded, optioneel) + tests
-- [x] MusicBrainz-client met rate-limiting + caching + tests
-- [x] Ingest-pipeline (idempotent, per-bestand foutafhandeling) + tests
-- [x] Scoring- en recommendation-engine + tests
-- [x] CLI (`ingest`, `suggest`, `search`, `stats`) + tests
+**Fase 1 (MVP) — compleet.**
 
-169 tests, allemaal groen (`pytest -q`), inclusief echte inference tegen de
-gedownloade mood/genre-modellen. Fase 2 (FastAPI + web-UI) en Fase 3
-(zelflerende gewichten) zijn nog niet gebouwd — zie BUILD_SPEC.md.
+- [x] Projectstructuur, database schema + CRUD, Camelot-mapping
+- [x] Essentia-extractor (BPM/key/loudness/danceability/energy)
+- [x] Mood/genre-classificatie (lazy-loaded, optioneel)
+- [x] MusicBrainz-client met rate-limiting + caching
+- [x] Ingest-pipeline (idempotent, per-bestand foutafhandeling)
+- [x] Scoring- en recommendation-engine
+- [x] CLI (`ingest`, `suggest`, `search`, `stats`)
+
+**Fase 2 (herzien, Rekordbox-gekoppeld) — in opbouw.** Zie
+[Rekordbox-workflow](#rekordbox-workflow) hieronder. Gebouwd:
+
+- [x] Rekordbox XML-catalogusimport (`import-rekordbox`) — snel, geen audio
+- [x] On-demand single-track analyse (`analyze`) — bpm/key uit Rekordbox
+      blijven leidend, alleen energy/mood/genre worden aangevuld
+- [x] Periodieke i.p.v. per-track energy-normalisatie
+- [x] `suggest`: eerst snelle score (bpm/key/genre), dan achtergrond-
+      verfijning met energie/mood voor de kansrijkste kandidaten
+      (`recommend/refine.py`, multiprocessing)
+- [x] Handmatige API-key-opslag (`set-api-key`, schrijft naar `.env`)
+- [ ] AI-suggestiebron via Claude API + websearch (`--source llm`) — bewust
+      nog niet gebouwd, config-infrastructuur staat al klaar (`claude_api`
+      in config.yaml)
+- [ ] Web-UI/FastAPI
+
+217 tests, allemaal groen (`pytest -q`).
 
 ## Installatie
 
@@ -85,6 +99,47 @@ dj-engine stats
 `suggest` toont per suggestie een uitsplitsing (`key=`, `bpm=`, `energy=`,
 `mood=`, elk 0-100) zodat je ziet waarom een track wordt voorgesteld.
 
+## Rekordbox-workflow
+
+Voor grote bibliotheken (getest tegen een echte export van 7308 tracks) is
+bulk-analyseren met Essentia vooraf niet nodig — Rekordbox heeft zelf al
+bpm/key geanalyseerd. Workflow:
+
+```bash
+# 1. In Rekordbox: File -> Export Collection in xml format
+# 2. Snelle catalogusimport (geen audio-decode, ~1s voor 7000+ tracks):
+dj-engine import-rekordbox bibliotheek.xml
+
+# 3. Vul rekordbox.path_mapping in config.yaml in als Rekordbox een ander
+#    pad gebruikt (bv. Windows) dan waar dj-engine draait:
+#    rekordbox:
+#      path_mapping:
+#        - from: "C:/Users/naam/Music/DJ Muziek"
+#          to: "/pad/op/dit/systeem"
+
+# 4. Tijdens draaien/voorbereiden: 1 track door de engine
+dj-engine analyze 42
+
+# 5. Suggesties: eerst snel (bpm/key/genre), daarna automatisch ververst
+#    met energie/mood voor de beste ~40 kandidaten
+dj-engine suggest 42 --direction build
+```
+
+`bpm`/`key`/`camelot` die uit Rekordbox komen worden **nooit** overschreven
+door Essentia's eigen detectie — alleen `energy`/`mood_*`/`loudness`/
+`danceability` komen uit onze eigen analyse. Streaming-tracks (Tidal e.d.,
+geen lokaal bestand) worden herkend en overgeslagen, nooit als fout behandeld.
+
+De `energy`-kolom wordt niet na elke losse `analyze` herschaald, maar pas
+na een configureerbare drempel (`scoring.energy_renormalize_threshold`,
+default 20) — of forceer het direct met `dj-engine normalize-energy`.
+
+### API-key voor de (nog niet gebouwde) AI-suggestiebron
+
+```bash
+dj-engine set-api-key sk-ant-...   # schrijft naar .env, staat in .gitignore
+```
+
 ## Testen
 
 ```bash
@@ -120,6 +175,17 @@ meegeleverd. MusicBrainz-netwerkcalls zijn in alle tests gemockt.
   in de echte MB-API geen `tag-list` mee (bevestigd tegen musicbrainz.org).
   Een gevonden MBID wordt daarom gevolgd door een tweede, eveneens
   rate-limited `get_recording_by_id(mbid, includes=["tags"])`-call.
+- **`db.upsert_track(..., commit=False)`**: ontdekt bij een echte
+  Rekordbox-import van 7308 tracks — één `conn.commit()` per rij duurde
+  44,7s; één commit na de hele batch: 0,7s. `commit=True` blijft de
+  default (ongewijzigd gedrag voor alle bestaande call sites); bulk-imports
+  gebruiken expliciet `commit=False` + één `conn.commit()` na afloop.
+- **Multiprocessing met `spawn`, niet `fork`**: `recommend/refine.py`
+  gebruikt bewust `multiprocessing.get_context("spawn")` i.p.v. Linux'
+  default `fork` — forken ná het laden van TensorFlow in het hoofdproces
+  is een bekende bron van hangs/crashes bij native libraries. Essentia/TF
+  worden toch al lazy (pas in de worker) geïmporteerd, dus dit kost geen
+  extra opstarttijd in de praktijk.
 
 ## MusicBrainz — gebruiksvoorwaarden
 
